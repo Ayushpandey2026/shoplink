@@ -1,12 +1,15 @@
 // src/components/shared/ProductCard.jsx
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { MapPin, Clock, Star, Package } from 'lucide-react'
 import { Card, CardContent, Badge } from '@/components/ui'
+import { useAuthRequired } from '@/hooks/useAuthRequired'
 import { cn } from '@/lib/utils'
 
 export const ProductCard = ({ product, className }) => {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const { checkAuth } = useAuthRequired()
 
   const primaryImage = product.images?.find((i) => i.isPrimary) || product.images?.[0]
   const daysToExpiry = product.daysToExpiry ??
@@ -23,8 +26,15 @@ export const ProductCard = ({ product, className }) => {
     return null
   }
 
+  const handleCardClick = (e) => {
+    e.preventDefault()
+    if (checkAuth('view product details')) {
+      navigate(`/products/${product._id}`)
+    }
+  }
+
   return (
-    <Link to={`/products/${product._id}`}>
+    <div onClick={handleCardClick} className="cursor-pointer">
       <Card className={cn('overflow-hidden hover:shadow-md transition-shadow active:scale-[0.99]', className)}>
         {/* Product Image */}
         <div className="relative aspect-square overflow-hidden bg-muted">
@@ -98,6 +108,6 @@ export const ProductCard = ({ product, className }) => {
           )}
         </CardContent>
       </Card>
-    </Link>
+    </div>
   )
 }

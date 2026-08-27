@@ -1,7 +1,7 @@
 // src/components/shared/Navbar.jsx
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Bell, MessageSquare, Menu, ShoppingBag, Moon, Sun, Globe } from 'lucide-react'
+import { Bell, MessageSquare, ShoppingBag, Moon, Sun, Globe, Store } from 'lucide-react'
 import { useAuthStore, useUIStore, useNotificationStore } from '@/store'
 import { Button, Avatar, AvatarImage, AvatarFallback, Badge } from '@/components/ui'
 import { authAPI } from '@/services/api'
@@ -13,6 +13,7 @@ export const Navbar = () => {
   const { user, logout, isAuthenticated } = useAuthStore()
   const { theme, setTheme, setLanguage, unreadMessages } = useUIStore()
   const { unreadCount } = useNotificationStore()
+  const role = user?.role && typeof user.role === 'string' ? user.role.toLowerCase() : undefined
   const navigate = useNavigate()
 
   const handleLogout = async () => {
@@ -54,6 +55,18 @@ export const Navbar = () => {
 
           {isAuthenticated && (
             <>
+              {role === 'seller' || role === 'admin' ? (
+                <Button variant="outline" size="sm" onClick={() => navigate('/shop/dashboard')} className="hidden sm:flex items-center gap-1.5">
+                  <Store className="h-4 w-4" />
+                  Shop Dashboard
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" onClick={() => navigate('/shop/register')} className="hidden sm:flex items-center gap-1.5">
+                  <Store className="h-4 w-4" />
+                  Become a Seller
+                </Button>
+              )}
+
               {/* Chat */}
               <Button variant="ghost" size="icon-sm" onClick={() => navigate('/chat')} className="relative">
                 <MessageSquare className="h-4 w-4" />

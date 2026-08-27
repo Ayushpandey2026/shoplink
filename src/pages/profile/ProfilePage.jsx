@@ -31,6 +31,7 @@ export default function ProfilePage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { user, logout, isSeller } = useAuthStore()
+  const canManageShop = user?.role === 'seller' || user?.role === 'admin' || isSeller
   const { theme, setTheme, language, setLanguage } = useUIStore()
   const [loggingOut, setLoggingOut] = useState(false)
 
@@ -84,7 +85,7 @@ export default function ProfilePage() {
       </Card>
 
       {/* Shop Section (Sellers) */}
-      {isSeller && (
+      {canManageShop && (
         <Card className="mb-4">
           <CardContent className="pt-2 pb-2 px-4">
             <MenuItem icon={Store} label={t('shop.my_shop')} value="Manage your shop" onClick={() => navigate('/shop/dashboard')} />
@@ -99,7 +100,7 @@ export default function ProfilePage() {
       )}
 
       {/* Register Shop (Buyers) */}
-      {!isSeller && (
+      {!canManageShop && (
         <Card className="mb-4 border-orange-200 dark:border-orange-900">
           <CardContent className="pt-4 pb-4 px-4">
             <div className="flex items-center gap-3">

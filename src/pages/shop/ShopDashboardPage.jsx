@@ -51,19 +51,30 @@ export default function ShopDashboardPage() {
       setShop(shopRes.data.shop)
 
       // Fetch pending orders
-      const ordersRes = await orderAPI.getSellerOrders({ status: 'pending', limit: 5 })
-      setPendingOrders(ordersRes.data?.orders || [])
+      try {
+        const ordersRes = await orderAPI.getSellerOrders({ status: 'pending', limit: 5 })
+        setPendingOrders(ordersRes.data?.orders || [])
+      } catch {
+        setPendingOrders([])
+      }
 
       // Fetch expiring soon products
-      const prodRes = await productAPI.getMyProducts({ limit: 100 })
-      const expiring = (prodRes.data?.products || []).filter(p => {
-        if (!p.expiryDate) return false
-        const days = Math.ceil((new Date(p.expiryDate) - new Date()) / 86400000)
-        return days > 0 && days <= 30
-      })
-      setExpiringProducts(expiring.slice(0, 5))
-    } catch {
-      // Shop not registered yet
+      try {
+        const prodRes = await productAPI.getMyProducts({ limit: 100 })
+        const expiring = (prodRes.data?.products || []).filter(p => {
+          if (!p.expiryDate) return false
+          const days = Math.ceil((new Date(p.expiryDate) - new Date()) / 86400000)
+          return days > 0 && days <= 30
+        })
+        setExpiringProducts(expiring.slice(0, 5))
+      } catch {
+        setExpiringProducts([])
+      }
+    } catch (error) {
+      const statusCode = error?.statusCode || error?.error?.statusCode || error?.response?.status
+      if (statusCode !== 404) {
+        toast.error(error?.message || 'Unable to load your shop')
+      }
     } finally {
       setLoading(false)
     }

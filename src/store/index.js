@@ -26,7 +26,9 @@ export const useAuthStore = create(
 
       updateUser: (userData) => set((state) => ({
         user: { ...state.user, ...userData },
-        isSeller: (userData.role || state.user?.role) === 'seller',
+        isSeller: (userData.role || state.user?.role) === 'seller'
+          || (userData.role || state.user?.role) === 'admin'
+          || Boolean(userData.shop || state.user?.shop),
       })),
 
       logout: () => {
@@ -51,7 +53,7 @@ export const useAuthStore = create(
 // ── UI Store ──────────────────────────────────────────────────────
 export const useUIStore = create((set) => ({
   theme: localStorage.getItem('shoplink_theme') || 'light',
-  language: localStorage.getItem('shoplink_lang') || 'hi',
+  language: localStorage.getItem('shoplink_lang') || 'en',
   sidebarOpen: false,
   unreadNotifications: 0,
   unreadMessages: 0,

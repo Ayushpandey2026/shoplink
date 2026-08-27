@@ -9,7 +9,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem, Badge
 } from '@/components/ui'
 import { PageWrapper, LoadingSpinner } from '@/components/shared'
-import { shopAPI } from '@/services/api'
+import { authAPI, shopAPI } from '@/services/api'
 import { useAuthStore } from '@/store'
 import toast from 'react-hot-toast'
 
@@ -87,18 +87,39 @@ export default function RegisterShopPage() {
       formData.append('address[line1]', data.addressLine1)
       formData.append('address[city]', data.city)
       formData.append('address[state]', data.state)
-      formData.append('address[pincode]', data.pincode)
+      formData.append('address[pincode]', String(data.pincode)) // Pincode ko bhi string mein safely convert karo
       if (data.landmark) formData.append('address[landmark]', data.landmark)
-      formData.append('location[latitude]', location.latitude)
-      formData.append('location[longitude]', location.longitude)
+      formData.append('location[latitude]', String(location.latitude))
+      formData.append('location[longitude]', String(location.longitude))
       if (data.gstNumber) formData.append('gstNumber', data.gstNumber)
-      if (data.phone) formData.append('phone', data.phone)
+
+      // Always convert phone to String explicitly
+      if (data.phone) {
+        formData.append('phone', String(data.phone).trim())
+      }
 
       // Logo
       if (logo) formData.append('logo', logo)
 
-      await shopAPI.register(formData)
-      updateUser({ role: 'seller' })
+      // Register shop
+      const registerRes = await shopAPI.register(formData)
+
+      // Try to use returned user from register response, otherwise refetch via getMe
+      let updatedUser = registerRes?.data?.user ?? registerRes?.user ?? null
+      if (!updatedUser) {
+        const profile = await authAPI.getMe()
+        updatedUser = profile?.data?.user ?? profile?.user ?? null
+      }
+
+      // As a final fallback, force a fresh fetch and set minimal role if backend is slow
+      if (!updatedUser) {
+        const profile = await authAPI.getMe()
+        updatedUser = profile?.data?.user ?? profile?.user ?? { role: 'seller' }
+      }
+
+      // Update local auth store so UI reflects new role immediately
+      if (updatedUser) updateUser(updatedUser)
+
       toast.success('Shop registered! Verification pending.')
       navigate('/shop/dashboard')
     } catch (err) {

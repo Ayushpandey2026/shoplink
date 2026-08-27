@@ -6,8 +6,9 @@ import { Search, SlidersHorizontal, MapPin, Zap, Clock, Tag, X } from 'lucide-re
 import { Button, Input, Badge, Card, CardContent, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui'
 import { ProductCard, ProductSkeleton, EmptyState, SectionHeader, PageWrapper } from '@/components/shared'
 import { productAPI } from '@/services/api'
-import { useLocationStore } from '@/store'
+import { useLocationStore, useAuthStore } from '@/store'
 import { useDebounce } from '@/hooks/useDebounce'
+import { useAuthRequired } from '@/hooks/useAuthRequired'
 import toast from 'react-hot-toast'
 
 const CATEGORIES = [
@@ -31,6 +32,8 @@ const SORT_OPTIONS = [
 export default function HomePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { isAuthenticated } = useAuthStore()
+  const { checkAuth } = useAuthRequired()
   const { latitude, longitude, requestLocation } = useLocationStore()
 
   const [products, setProducts] = useState([])

@@ -6,7 +6,7 @@ import hi from './hi.json'
 
 i18n.use(initReactI18next).init({
   resources: { en: { translation: en }, hi: { translation: hi } },
-  lng: localStorage.getItem('shoplink_lang') || 'hi',
+  lng: localStorage.getItem('shoplink_lang') || 'en',
   fallbackLng: 'en',
   interpolation: { escapeValue: false },
 })

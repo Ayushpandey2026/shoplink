@@ -8,59 +8,97 @@ const api = axios.create({
   withCredentials: true,
 })
 
+const getStoredToken = () => {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem('shoplink_token') || localStorage.getItem('accessToken') || null
+}
+
 // Request interceptor — attach token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('shoplink_token')
-    if (token) config.headers.Authorization = `Bearer ${token}`
+    const token = getStoredToken()
+
+    if (token) {
+      config.headers = config.headers || {}
+      config.headers.Authorization = `Bearer ${token}`
+    }
+
+    config.withCredentials = true
     return config
   },
   (error) => Promise.reject(error)
-)
+);
 
-// Response interceptor — handle errors globally
+//// Response interceptor — handle errors globally
 api.interceptors.response.use(
-  (response) => response.data,
+  (response) => response.data, // Returns response.data directly for successful requests
   async (error) => {
-    const { response } = error
+    const { response } = error;
+    const originalRequest = error.config;
 
-    if (response?.status === 401) {
-      // Try refresh token
-      const refreshToken = localStorage.getItem('shoplink_refresh_token')
-      if (refreshToken && !error.config._retry) {
-        error.config._retry = true
+    // 🎯 401 Unauthorized handling — Token Expired
+    if (response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      // Check both keys to prevent storage key mismatch bugs
+      const refreshToken = 
+        localStorage.getItem('shoplink_refresh_token') || 
+        localStorage.getItem('refreshToken');
+
+      if (refreshToken) {
         try {
-          const res = await axios.post('/api/auth/refresh-token', { refreshToken })
-          const newToken = res.data?.data?.accessToken
+          console.log("🔄 Access token expired. Attempting token refresh...");
+
+          // 🎯 Fix: Uses the internal api instance config to inherit correct baseURL (Port 5000)
+          const res = await api.post('/auth/refresh-token', { refreshToken });
+          
+          // 🎯 Fix: Fallback parsing to match both { data: { accessToken } } or direct response schema
+          const newToken = res?.data?.accessToken || res?.accessToken;
+
           if (newToken) {
-            localStorage.setItem('shoplink_token', newToken)
-            error.config.headers.Authorization = `Bearer ${newToken}`
-            return api(error.config)
+            console.log("✅ Token refreshed successfully!");
+            
+            // Sync both possible local storage naming formats
+            localStorage.setItem('shoplink_token', newToken);
+            localStorage.setItem('accessToken', newToken);
+
+            // Re-attach new token to original headers and retry request
+            originalRequest.headers = originalRequest.headers || {}
+            originalRequest.headers.Authorization = `Bearer ${newToken}`
+            originalRequest.withCredentials = true
+            return api(originalRequest);
           }
-        } catch {
-          // Refresh failed — force logout
-          localStorage.clear()
-          window.location.href = '/auth/login'
+        } catch (refreshError) {
+          console.error("❌ Refresh token failed or expired. Forcing logout.");
+          localStorage.clear();
+          window.location.href = '/auth/login';
+          return Promise.reject(refreshError);
         }
       } else {
-        localStorage.clear()
-        window.location.href = '/auth/login'
+        console.warn("⚠️ No refresh token found. Routing to login.");
+        localStorage.clear();
+        window.location.href = '/auth/login';
       }
     }
 
-    const message = response?.data?.message || 'Something went wrong'
+    // 🎯 Error Message Extraction & User Notifications
+    // Checks standard backend AppError wrapper or generic network error messages
+    const message = response?.data?.message || response?.message || error.message || 'Something went wrong';
+    
+    // Toast only for genuine errors, skip 401 to avoid unnecessary spam during re-authentication routing
     if (response?.status !== 401) {
-      toast.error(message)
+      toast.error(message);
     }
 
-    return Promise.reject(response?.data || error)
+    return Promise.reject(response?.data || error);
   }
-)
+);
 
 // ── Auth APIs ─────────────────────────────────────────────────────
 export const authAPI = {
   sendOTP: (data) => api.post('/auth/send-otp', data),
   verifyOTP: (data) => api.post('/auth/verify-otp', data),
+  googleLogin: (data) => api.post('/auth/google-login', data),
   completeRegistration: (data) => api.post('/auth/complete-registration', data),
   refreshToken: (data) => api.post('/auth/refresh-token', data),
   logout: (data) => api.post('/auth/logout', data),

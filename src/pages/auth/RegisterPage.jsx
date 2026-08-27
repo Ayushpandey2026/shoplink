@@ -1,11 +1,11 @@
-// src/pages/auth/LoginPage.jsx
+// src/pages/auth/RegisterPage.jsx
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { ShoppingBag, Phone, Shield, ChevronRight, Globe } from 'lucide-react'
+import { ShoppingBag, Phone, Shield, ChevronRight, Globe, ArrowLeft } from 'lucide-react'
 import { GoogleLogin } from '@react-oauth/google'
 import { Button, Input, Label, Card, CardContent, Alert, AlertDescription } from '@/components/ui'
 import { authAPI } from '@/services/api'
@@ -21,7 +21,7 @@ const otpSchema = z.object({
   otp: z.string().length(6, 'OTP must be 6 digits').regex(/^\d+$/, 'Only numbers allowed'),
 })
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { setAuth, isAuthenticated } = useAuthStore()
@@ -32,6 +32,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
   const [resendTimer, setResendTimer] = useState(0)
+  const [error, setError] = useState('')
 
   // Redirect if already logged in
   useEffect(() => {
@@ -50,23 +51,16 @@ export default function LoginPage() {
 
   const handleSendOTP = async (data) => {
     setLoading(true)
+    setError('')
     try {
-      await authAPI.sendOTP({ phone: data.phone, purpose: 'login' })
+      await authAPI.sendOTP({ phone: data.phone, purpose: 'register' })
       setPhone(data.phone)
       setStep('otp')
       setResendTimer(60)
-      toast.success(t('auth.otp_sent'))
+      toast.success(t('auth.otp_sent') || 'OTP sent to your phone!')
     } catch (err) {
-      // If user not found, offer registration
-      if (err?.message?.includes('No account found')) {
-        try {
-          await authAPI.sendOTP({ phone: data.phone, purpose: 'register' })
-          setPhone(data.phone)
-          setStep('otp')
-          setResendTimer(60)
-          toast.success('OTP sent! Complete registration after verification.')
-        } catch {}
-      }
+      setError(err?.message || 'Failed to send OTP. Please try again.')
+      toast.error(err?.message || 'Failed to send OTP')
     } finally {
       setLoading(false)
     }
@@ -74,6 +68,7 @@ export default function LoginPage() {
 
   const handleVerifyOTP = async (data) => {
     setLoading(true)
+    setError('')
     try {
       const res = await authAPI.verifyOTP({ phone, otp: data.otp })
       const { user, accessToken, refreshToken } = res.data
@@ -81,16 +76,14 @@ export default function LoginPage() {
       setAuth({ user, accessToken, refreshToken })
       initSocket(accessToken)
 
-      toast.success(res.message || 'Login successful!')
+      toast.success('Registration successful! Please complete your profile.')
 
       // New user → complete profile
-      if (user.name?.startsWith('User')) {
-        navigate('/auth/complete-profile')
-      } else {
-        navigate('/')
-      }
-    } catch {
-      otpForm.setError('otp', { message: 'Invalid OTP. Please try again.' })
+      navigate('/auth/complete-profile')
+    } catch (err) {
+      setError(err?.message || 'Invalid OTP')
+      otpForm.setError('otp', { message: err?.message || 'Invalid OTP. Please try again.' })
+      toast.error(err?.message || 'Invalid OTP')
     } finally {
       setLoading(false)
     }
@@ -98,11 +91,16 @@ export default function LoginPage() {
 
   const handleResendOTP = async () => {
     if (resendTimer > 0) return
+    setLoading(true)
     try {
-      await authAPI.sendOTP({ phone, purpose: 'login' })
+      await authAPI.sendOTP({ phone, purpose: 'register' })
       setResendTimer(60)
-      toast.success(t('auth.otp_sent'))
-    } catch {}
+      toast.success(t('auth.otp_sent') || 'OTP resent!')
+    } catch (err) {
+      toast.error(err?.message || 'Failed to resend OTP')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Google OAuth handler
@@ -113,35 +111,33 @@ export default function LoginPage() {
         throw new Error('No credential from Google')
       }
 
-      // Send the Google token to the backend
       const res = await authAPI.googleLogin({
         token: credentialResponse.credential,
       })
 
       const { user, accessToken, refreshToken } = res.data
 
-      // Update auth state
       setAuth({ user, accessToken, refreshToken })
       initSocket(accessToken)
 
-      toast.success('Google login successful!')
+      toast.success('Google sign-up successful!')
 
-      // Redirect to complete profile if new user
-      if (user.name?.startsWith('User') || !user.email) {
+      // Redirect to complete profile for new users
+      if (user.name?.startsWith('User') || !user.phone) {
         navigate('/auth/complete-profile')
       } else {
         navigate('/')
       }
     } catch (error) {
-      console.error('Google login failed:', error)
-      toast.error(error?.message || 'Google login failed. Please try again.')
+      console.error('Google sign-up failed:', error)
+      toast.error(error?.message || 'Google sign-up failed. Please try again.')
     } finally {
       setGoogleLoading(false)
     }
   }
 
   const handleGoogleError = () => {
-    toast.error('Google login failed. Please try again.')
+    toast.error('Google sign-up failed. Please try again.')
   }
 
   const toggleLang = () => {
@@ -152,8 +148,11 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 to-amber-50 dark:from-gray-900 dark:to-gray-800 flex flex-col">
-      {/* Language toggle */}
-      <div className="flex justify-end p-4">
+      {/* Header */}
+      <div className="flex justify-between items-center p-4">
+        <Button variant="ghost" size="icon-sm" onClick={() => navigate('/auth/login')} className="gap-2">
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
         <Button variant="ghost" size="sm" onClick={toggleLang} className="gap-2">
           <Globe className="h-4 w-4" />
           {i18n.language === 'hi' ? 'EN' : 'हिं'}
@@ -178,28 +177,39 @@ export default function LoginPage() {
             {step === 'phone' ? (
               <>
                 <div>
-                  <h2 className="text-lg font-semibold">{t('auth.welcome')}</h2>
+                  <h2 className="text-lg font-semibold">{t('auth.register') || 'Create Account'}</h2>
                   <p className="text-sm text-muted-foreground mt-1">
-                    अपना खाता एक्सेस करने के लिए लॉगइन करें
+                    {t('auth.enter_phone') || 'Enter your mobile number to get started'}
                   </p>
                 </div>
 
-                {/* Google Sign-In Button */}
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Google Sign-Up Button */}
                 <div className="flex justify-center py-2">
                   <GoogleLogin
                     onSuccess={handleGoogleSuccess}
                     onError={handleGoogleError}
-                    text="signin_with"
+                    text="signup_with"
                     size="large"
                     width="280"
                   />
                 </div>
 
                 {/* Divider */}
-                <div className="flex items-center gap-2 my-4">
-                  <div className="flex-1 h-px bg-gray-300"></div>
-                  <span className="text-xs text-muted-foreground">या</span>
-                  <div className="flex-1 h-px bg-gray-300"></div>
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-white dark:bg-gray-950 px-2 text-muted-foreground">
+                      {t('auth.or') || 'या'}
+                    </span>
+                  </div>
                 </div>
 
                 <form onSubmit={phoneForm.handleSubmit(handleSendOTP)} className="space-y-4">
@@ -210,94 +220,107 @@ export default function LoginPage() {
                         🇮🇳 +91
                       </div>
                       <Input
-                        type="tel"
-                        maxLength={10}
-                        placeholder={t('auth.phone_placeholder')}
+                        placeholder="9876543210"
                         {...phoneForm.register('phone')}
-                        className="flex-1"
+                        maxLength="10"
                         inputMode="numeric"
+                        className="flex-1"
                       />
                     </div>
                     {phoneForm.formState.errors.phone && (
-                      <p className="text-xs text-destructive">{phoneForm.formState.errors.phone.message}</p>
+                      <p className="text-xs text-red-500">{phoneForm.formState.errors.phone.message}</p>
                     )}
                   </div>
 
-                  <Button type="submit" className="w-full" disabled={loading || googleLoading}>
-                    {loading ? 'Sending...' : t('auth.send_otp')}
-                    {!loading && <ChevronRight className="h-4 w-4 ml-1" />}
+                  <Button type="submit" className="w-full gap-2" disabled={loading || googleLoading}>
+                    {loading ? 'Sending OTP...' : <>
+                      {t('auth.continue')} <ChevronRight className="h-4 w-4" />
+                    </>}
                   </Button>
                 </form>
 
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Shield className="h-3 w-3 flex-shrink-0" />
-                  <span>आपका नंबर सुरक्षित है। हम OTP के अलावा कुछ नहीं भेजेंगे।</span>
-                </div>
-
-                <div className="pt-2 border-t text-center">
-                  <p className="text-sm text-muted-foreground mb-2">
-                    खाता नहीं है? <Link to="/auth/register" className="text-orange-500 font-semibold hover:underline">साइन अप करें</Link>
+                <div className="text-center space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    {t('auth.already_have_account') || 'Already have an account?'}
                   </p>
+                  <Link to="/auth/login">
+                    <Button variant="outline" className="w-full">
+                      {t('auth.login')}
+                    </Button>
+                  </Link>
                 </div>
               </>
             ) : (
               <>
                 <div>
-                  <button
-                    onClick={() => setStep('phone')}
-                    className="text-xs text-orange-500 mb-2 flex items-center gap-1"
-                  >
-                    ← बदलें
-                  </button>
-                  <h2 className="text-lg font-semibold">{t('auth.verify_otp')}</h2>
+                  <h2 className="text-lg font-semibold">{t('auth.verify_otp') || 'Verify OTP'}</h2>
                   <p className="text-sm text-muted-foreground mt-1">
-                    OTP भेजा गया: <strong>+91 {phone.replace(/(\d{2})\d{6}(\d{2})/, '$1xxxxxx$2')}</strong>
+                    {t('auth.otp_sent_to')} +91{phone}
                   </p>
                 </div>
 
+                {error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
                 <form onSubmit={otpForm.handleSubmit(handleVerifyOTP)} className="space-y-4">
                   <div className="space-y-1.5">
-                    <Label>{t('auth.otp_label')}</Label>
+                    <Label>{t('auth.otp')}</Label>
                     <Input
-                      type="tel"
-                      maxLength={6}
-                      placeholder={t('auth.otp_placeholder')}
+                      placeholder="000000"
                       {...otpForm.register('otp')}
+                      maxLength="6"
                       inputMode="numeric"
-                      className="text-center text-xl tracking-[0.5em] font-mono"
-                      autoFocus
+                      className="text-center text-lg tracking-widest"
                     />
                     {otpForm.formState.errors.otp && (
-                      <p className="text-xs text-destructive">{otpForm.formState.errors.otp.message}</p>
+                      <p className="text-xs text-red-500">{otpForm.formState.errors.otp.message}</p>
                     )}
                   </div>
 
                   <Button type="submit" className="w-full" disabled={loading}>
-                    {loading ? 'Verifying...' : t('auth.verify_otp')}
+                    {loading ? 'Verifying...' : t('auth.verify')}
                   </Button>
                 </form>
 
-                <div className="text-center">
-                  {resendTimer > 0 ? (
-                    <p className="text-xs text-muted-foreground">
-                      {t('auth.resend_in', { seconds: resendTimer })}
-                    </p>
-                  ) : (
-                    <button onClick={handleResendOTP} className="text-xs text-orange-500 font-medium">
-                      {t('auth.resend_otp')}
-                    </button>
-                  )}
+                <div className="text-center space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    {resendTimer > 0
+                      ? `Resend OTP in ${resendTimer}s`
+                      : t('auth.did_not_receive')}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleResendOTP}
+                    disabled={resendTimer > 0 || loading}
+                    className="w-full"
+                  >
+                    {t('auth.resend_otp')}
+                  </Button>
                 </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStep('phone')}
+                  className="w-full"
+                >
+                  {t('auth.change_number')}
+                </Button>
               </>
             )}
           </CardContent>
         </Card>
 
-        {/* Trust badges */}
-        <div className="flex gap-4 mt-6 text-xs text-muted-foreground">
-          <span>🔒 Secure</span>
-          <span>🏪 10,000+ Shops</span>
-          <span>⚡ Instant</span>
+        {/* Footer Info */}
+        <div className="mt-8 text-center text-xs text-muted-foreground max-w-sm">
+          <div className="flex gap-2 items-center justify-center mb-2">
+            <Shield className="h-3.5 w-3.5" />
+            <span>{t('auth.secure_login') || 'Your data is secure and encrypted'}</span>
+          </div>
         </div>
       </div>
     </div>
