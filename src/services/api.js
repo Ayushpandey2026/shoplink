@@ -96,6 +96,8 @@ api.interceptors.response.use(
 
 // ── Auth APIs ─────────────────────────────────────────────────────
 export const authAPI = {
+  register: (data) => api.post('/auth/register', data),
+  login: (data) => api.post('/auth/login', data),
   sendOTP: (data) => api.post('/auth/send-otp', data),
   verifyOTP: (data) => api.post('/auth/verify-otp', data),
   googleLogin: (data) => api.post('/auth/google-login', data),

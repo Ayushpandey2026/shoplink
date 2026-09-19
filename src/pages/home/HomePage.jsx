@@ -206,7 +206,7 @@ export default function HomePage() {
           />
           <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4">
             {expiringProducts.slice(0, 6).map((p) => (
-              <div key={p._id} className="w-36 flex-shrink-0">
+              <div key={p._id} className="w-56 flex-shrink-0">
                 <ProductCard product={p} />
               </div>
             ))}
@@ -247,7 +247,7 @@ export default function HomePage() {
           />
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               {products.map((p) => <ProductCard key={p._id} product={p} />)}
             </div>
 

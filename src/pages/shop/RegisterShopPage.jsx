@@ -93,10 +93,8 @@ export default function RegisterShopPage() {
       formData.append('location[longitude]', String(location.longitude))
       if (data.gstNumber) formData.append('gstNumber', data.gstNumber)
 
-      // Always convert phone to String explicitly
-      if (data.phone) {
-        formData.append('phone', String(data.phone).trim())
-      }
+      const businessPhone = data.phone == null ? '' : String(data.phone).trim()
+      if (businessPhone) formData.append('phone', businessPhone)
 
       // Logo
       if (logo) formData.append('logo', logo)
