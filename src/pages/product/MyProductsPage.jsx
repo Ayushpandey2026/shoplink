@@ -17,6 +17,7 @@ export default function MyProductsPage() {
 
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [deleting, setDeleting] = useState(null)
 
@@ -24,10 +25,19 @@ export default function MyProductsPage() {
 
   const fetchProducts = async () => {
     setLoading(true)
+    setError('')
     try {
-      const res = await productAPI.getMyProducts({ limit: 100, ...(statusFilter && { status: statusFilter }) })
-      setProducts(res.data.products || [])
-    } catch { setProducts([]) } finally { setLoading(false) }
+      const res = await productAPI.getMyProducts({
+        limit: 100,
+        ...(statusFilter && statusFilter !== 'all' && { status: statusFilter }),
+      })
+      const nextProducts = res?.data?.products
+      if (!Array.isArray(nextProducts)) throw new Error('Invalid products response')
+      setProducts(nextProducts)
+    } catch (requestError) {
+      setProducts([])
+      setError(requestError?.message || 'Unable to load your products. Please try again.')
+    } finally { setLoading(false) }
   }
 
   const handleDelete = async (productId) => {
@@ -60,7 +70,7 @@ export default function MyProductsPage() {
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All</SelectItem>
+            <SelectItem value="all">All</SelectItem>
             <SelectItem value="active">Active</SelectItem>
             <SelectItem value="sold_out">Sold Out</SelectItem>
             <SelectItem value="paused">Paused</SelectItem>
@@ -69,7 +79,15 @@ export default function MyProductsPage() {
         </Select>
       </div>
 
-      {loading ? <LoadingSpinner className="py-12" /> : products.length === 0 ? (
+      {loading ? <LoadingSpinner className="py-12" /> : error ? (
+        <EmptyState
+          icon={AlertCircle}
+          title="Could not load products"
+          description={error}
+          action={fetchProducts}
+          actionLabel="Try Again"
+        />
+      ) : products.length === 0 ? (
         <EmptyState
           icon={Package}
           title="No products listed"

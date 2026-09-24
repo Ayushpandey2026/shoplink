@@ -123,7 +123,7 @@ export const shopAPI = {
 
 // ── Product APIs ──────────────────────────────────────────────────
 export const productAPI = {
-  getProducts: (params) => api.get('/products', { params }),
+  getProducts: (params, config = {}) => api.get('/products', { params, ...config }),
   getProduct: (id) => api.get(`/products/${id}`),
   getMyProducts: (params) => api.get('/products/my', { params }),
   createProduct: (data) => api.post('/products', data, { headers: { 'Content-Type': 'multipart/form-data' } }),

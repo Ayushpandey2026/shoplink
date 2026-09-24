@@ -43,6 +43,12 @@ export default function ProductDetailPage() {
     fetchProduct()
   }, [id])
 
+  useEffect(() => {
+    if (!product) return
+    const minimumOrderQuantity = Math.max(1, Number(product.minimumOrderQuantity) || 1)
+    setQuantity(minimumOrderQuantity <= product.availableQuantity ? minimumOrderQuantity : 1)
+  }, [product])
+
   const fetchProduct = async () => {
     try {
       const res = await productAPI.getProduct(id)
@@ -145,7 +151,9 @@ export default function ProductDetailPage() {
   if (!product) return null
 
   const isSeller = user?._id === product.seller?._id
-  const canOrder = !isSeller && product.availableQuantity > 0 && product.status === 'active'
+  const minimumOrderQuantity = Math.max(1, Number(product.minimumOrderQuantity) || 1)
+  const hasValidMinimumOrderQuantity = minimumOrderQuantity <= product.availableQuantity
+  const canOrder = !isSeller && product.availableQuantity > 0 && product.status === 'active' && hasValidMinimumOrderQuantity
 
   return (
     <div className="min-h-screen bg-background pb-32">
@@ -300,10 +308,9 @@ export default function ProductDetailPage() {
               <CardContent className="pt-0 space-y-2">
                 {[
                   { label: 'Barcode', value: product.barcode },
-                  { label: 'Weight', value: product.weight ? `${product.weight.value} ${product.weight.unit}` : null },
                   { label: 'MFG Date', value: product.manufacturingDate ? format(new Date(product.manufacturingDate), 'dd MMM yyyy') : null },
                   { label: 'Expiry Date', value: product.expiryDate ? format(new Date(product.expiryDate), 'dd MMM yyyy') : null },
-                  { label: 'Min Order Qty', value: product.minimumOrderQuantity ? `${product.minimumOrderQuantity} ${product.unit}` : null },
+                  { label: 'Min Order Qty', value: `${minimumOrderQuantity} ${product.unit}` },
                   { label: 'Min Order Value', value: product.minimumOrderValue > 0 ? `₹${product.minimumOrderValue}` : null },
                   { label: 'Listed', value: formatDistanceToNow(new Date(product.createdAt), { addSuffix: true }) }
                 ].filter(i => i.value).map(({ label, value }) => (
@@ -427,10 +434,16 @@ export default function ProductDetailPage() {
             {/* Quantity */}
             <div className="space-y-1.5">
               <Label>Quantity ({product.unit})</Label>
+              {!hasValidMinimumOrderQuantity && (
+                <p className="text-xs text-destructive">
+                  This product cannot be ordered because its minimum order quantity exceeds available stock.
+                </p>
+              )}
               <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setQuantity(q => Math.max(product.minimumOrderQuantity || 1, q - 1))}
+                  disabled={!hasValidMinimumOrderQuantity || quantity <= minimumOrderQuantity}
                   className="h-9 w-9 rounded-lg border flex items-center justify-center font-bold hover:bg-muted"
                 >
                   −
@@ -439,6 +452,7 @@ export default function ProductDetailPage() {
                 <button
                   type="button"
                   onClick={() => setQuantity(q => Math.min(product.availableQuantity, q + 1))}
+                  disabled={!hasValidMinimumOrderQuantity || quantity >= product.availableQuantity}
                   className="h-9 w-9 rounded-lg border flex items-center justify-center font-bold hover:bg-muted"
                 >
                   +

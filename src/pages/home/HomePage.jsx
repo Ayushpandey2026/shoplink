@@ -1,5 +1,5 @@
 // src/pages/home/HomePage.jsx
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Search, SlidersHorizontal, MapPin, Zap, Clock, Tag, X } from 'lucide-react'
@@ -34,7 +34,7 @@ export default function HomePage() {
   const navigate = useNavigate()
   const { isAuthenticated } = useAuthStore()
   const { checkAuth } = useAuthRequired()
-  const { latitude, longitude, requestLocation } = useLocationStore()
+  const { latitude, longitude, error: locationError, requestLocation } = useLocationStore()
 
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
@@ -46,19 +46,26 @@ export default function HomePage() {
   const [sortOrder, setSortOrder] = useState('desc')
   const [showFilters, setShowFilters] = useState(false)
   const [radiusKm, setRadiusKm] = useState(10)
+  const requestIdRef = useRef(0)
+  const abortControllerRef = useRef(null)
 
   const debouncedSearch = useDebounce(search, 400)
+  const locationReady = Boolean((latitude && longitude) || locationError)
 
   // Request location on mount
   useEffect(() => {
     if (!latitude && !longitude) requestLocation()
-  }, [])
+  }, [latitude, longitude, requestLocation])
 
-  const fetchProducts = useCallback(async (resetPage = false) => {
+  const fetchProducts = useCallback(async (resetPage = false, pageToFetch = 1) => {
+    const requestId = ++requestIdRef.current
+    abortControllerRef.current?.abort()
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
     setLoading(true)
     try {
       const params = {
-        page: resetPage ? 1 : page,
+        page: pageToFetch,
         limit: 20,
         sortBy,
         sortOrder,
@@ -67,38 +74,57 @@ export default function HomePage() {
         ...(latitude && longitude && { lat: latitude, lng: longitude, radiusKm }),
       }
 
-      const res = await productAPI.getProducts(params)
-      const { products: newProducts, pagination } = res.data
+      const res = await productAPI.getProducts(params, { signal: abortController.signal })
+      const responseData = res?.data
+      const newProducts = responseData?.products
+      const pagination = responseData?.pagination
+
+      if (!Array.isArray(newProducts) || !pagination) {
+        throw new Error('Invalid product list response')
+      }
+
+      if (requestId !== requestIdRef.current) return
 
       if (resetPage) {
         setProducts(newProducts)
         setPage(1)
       } else {
-        setProducts((prev) => [...prev, ...newProducts])
+        setProducts((prev) => {
+          const existingIds = new Set(prev.map((product) => product._id))
+          return [...prev, ...newProducts.filter((product) => !existingIds.has(product._id))]
+        })
       }
       setHasMore(pagination.hasMore)
     } catch (err) {
-      if (resetPage) setProducts([])
+      if (err.name !== 'CanceledError' && err.name !== 'AbortError' && requestId === requestIdRef.current && resetPage) {
+        setProducts([])
+      }
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
-  }, [debouncedSearch, category, sortBy, sortOrder, latitude, longitude, radiusKm, page])
+  }, [debouncedSearch, category, sortBy, sortOrder, latitude, longitude, radiusKm])
 
   // Reset and fetch on filter change
   useEffect(() => {
+    if (!locationReady) return
     fetchProducts(true)
-  }, [debouncedSearch, category, sortBy, sortOrder, latitude, longitude])
+    return () => abortControllerRef.current?.abort()
+  }, [fetchProducts, locationReady])
 
   const loadMore = () => {
     if (!hasMore || loading) return
-    setPage((p) => p + 1)
-    fetchProducts(false)
+    const nextPage = page + 1
+    setPage(nextPage)
+    fetchProducts(false, nextPage)
   }
 
-  const expiringProducts = products.filter(
+  const safeProducts = Array.isArray(products)
+    ? products.filter((product) => product && typeof product === 'object')
+    : []
+  const expiringProducts = safeProducts.filter(
     (p) => p.daysToExpiry != null && p.daysToExpiry <= 30 && p.daysToExpiry > 0
   )
-  const bestDeals = products.filter((p) => p.discountPercent >= 20)
+  const bestDeals = safeProducts.filter((p) => p.discountPercent >= 20)
 
   return (
     <PageWrapper className="pb-24">
@@ -234,11 +260,11 @@ export default function HomePage() {
           title={search ? `Results for "${search}"` : `${t('home.new_listings')}`}
         />
 
-        {loading && products.length === 0 ? (
+        {loading && safeProducts.length === 0 ? (
           <div className="grid grid-cols-2 gap-3">
             {Array.from({ length: 6 }).map((_, i) => <ProductSkeleton key={i} />)}
           </div>
-        ) : products.length === 0 ? (
+        ) : safeProducts.length === 0 ? (
           <EmptyState
             title={t('home.no_products')}
             description="Try adjusting your filters or search query"
@@ -248,7 +274,7 @@ export default function HomePage() {
         ) : (
           <>
             <div className="grid grid-cols-3 gap-3">
-              {products.map((p) => <ProductCard key={p._id} product={p} />)}
+              {safeProducts.map((p) => <ProductCard key={p._id} product={p} />)}
             </div>
 
             {/* Load More */}
