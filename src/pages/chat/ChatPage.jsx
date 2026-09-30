@@ -23,7 +23,9 @@ export function ConversationsPage() {
       try {
         const res = await chatAPI.getConversations()
         setConversations(res.data?.conversations || [])
-      } catch {} finally { setLoading(false) }
+      } catch {
+        setConversations([])
+      } finally { setLoading(false) }
     }
     fetch()
   }, [])
@@ -94,42 +96,68 @@ export function ConversationPage() {
   const [sending, setSending] = useState(false)
   const [otherUser, setOtherUser] = useState(null)
   const [isTyping, setIsTyping] = useState(false)
+  const [loadError, setLoadError] = useState(false)
   const bottomRef = useRef(null)
   const typingTimer = useRef(null)
 
   useEffect(() => {
-    fetchMessages()
+    let active = true
     const socket = getSocket()
-    if (socket) {
-      socket.emit('chat:join', { conversationId: id })
-      socket.on('chat:new-message', ({ message }) => {
-        setMessages((prev) => [...prev, message])
-        scrollToBottom()
-      })
-      socket.on('chat:typing', ({ userId, isTyping: typing }) => {
-        if (userId !== user?._id) setIsTyping(typing)
-      })
+    const appendMessage = (message) => {
+      setMessages((prev) => prev.some((item) => item._id === message._id) ? prev : [...prev, message])
     }
-    return () => {
-      if (socket) {
-        socket.off('chat:new-message')
-        socket.off('chat:typing')
-        socket.emit('chat:read', { conversationId: id })
+    const joinConversation = () => socket?.emit('chat:join', { conversationId: id })
+    const handleNewMessage = ({ message, conversationId }) => {
+      if (conversationId === id || message?.conversation === id || message?.conversation?._id === id) {
+        appendMessage(message)
       }
     }
-  }, [id])
+    const handleTypingUpdate = ({ userId, isTyping: typing, conversationId }) => {
+      if (conversationId === id && userId !== user?._id) setIsTyping(typing)
+    }
 
-  const fetchMessages = async () => {
-    try {
-      const res = await chatAPI.getMessages(id)
-      setMessages(res.data?.messages || [])
-      const other = res.data?.conversation?.participants?.find((p) => p._id !== user?._id)
-      setOtherUser(other)
-    } catch {} finally { setLoading(false) }
-    setTimeout(scrollToBottom, 100)
+    const loadMessages = async () => {
+      try {
+        const res = await chatAPI.getMessages(id)
+        if (!active) return
+        setMessages((current) => {
+          const merged = new Map([...(res.data?.messages || []), ...current].map((message) => [message._id, message]))
+          return [...merged.values()].sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt))
+        })
+        const other = res.data?.conversation?.participants?.find((p) => p._id !== user?._id)
+        setOtherUser(other)
+        setLoadError(false)
+      } catch {
+        if (active) setLoadError(true)
+      } finally {
+        if (active) setLoading(false)
+      }
+      if (active) setTimeout(scrollToBottom, 100)
+    }
+
+    loadMessages()
+    if (socket) {
+      socket.on('connect', joinConversation)
+      socket.on('chat:new-message', handleNewMessage)
+      socket.on('chat:typing', handleTypingUpdate)
+      if (socket.connected) joinConversation()
+    }
+    return () => {
+      active = false
+      clearTimeout(typingTimer.current)
+      if (socket) {
+        socket.off('connect', joinConversation)
+        socket.off('chat:new-message', handleNewMessage)
+        socket.off('chat:typing', handleTypingUpdate)
+        socket.emit('chat:read', { conversationId: id })
+        socket.emit('chat:leave', { conversationId: id })
+      }
+    }
+  }, [id, user?._id])
+
+  function scrollToBottom() {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
-
-  const scrollToBottom = () => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
 
   useEffect(() => { scrollToBottom() }, [messages])
 
@@ -150,26 +178,32 @@ export function ConversationPage() {
     setText('')
     setSending(true)
 
-    // Optimistic update
-    const tempMsg = { _id: Date.now(), content, sender: { _id: user?._id }, createdAt: new Date() }
-    setMessages((prev) => [...prev, tempMsg])
-
     const socket = getSocket()
-    if (socket) {
-      socket.emit('chat:message', { conversationId: id, content })
+    if (socket?.connected) {
+      socket.emit('chat:message', { conversationId: id, content }, (result) => {
+        if (result?.message) {
+          setMessages((prev) => prev.some((item) => item._id === result.message._id) ? prev : [...prev, result.message])
+        } else if (result?.error) {
+          setText(content)
+        }
+      })
       setSending(false)
     } else {
       try {
-        await chatAPI.sendMessage(id, { content })
-        fetchMessages()
-      } catch {} finally { setSending(false) }
+        const response = await chatAPI.sendMessage(id, { content })
+        const message = response.data?.message
+        if (message) setMessages((prev) => prev.some((item) => item._id === message._id) ? prev : [...prev, message])
+      } catch {
+        setText(content)
+      } finally { setSending(false) }
     }
   }
 
   if (loading) return <LoadingSpinner className="py-20" />
+  if (loadError) return <div className="mx-auto max-w-3xl px-4 py-8 text-center text-sm text-muted-foreground">Unable to load this conversation. Check your connection and try again.</div>
 
   return (
-    <div className="flex flex-col h-screen bg-background">
+    <div className="mx-auto flex h-[calc(100dvh-7.5rem)] min-h-[24rem] max-w-5xl flex-col border-x bg-background">
       {/* Header */}
       <div className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 border-b bg-background/95 backdrop-blur">
         <button onClick={() => navigate('/chat')}><ArrowLeft className="h-5 w-5" /></button>
@@ -184,7 +218,7 @@ export function ConversationPage() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-2">
         {messages.map((msg) => {
           const isMe = msg.sender?._id === user?._id || msg.sender === user?._id
           return (
@@ -206,7 +240,7 @@ export function ConversationPage() {
       </div>
 
       {/* Input */}
-      <div className="border-t px-4 py-3 pb-safe flex gap-2 bg-background">
+      <div className="shrink-0 border-t px-4 py-3 flex gap-2 bg-background">
         <Input
           value={text}
           onChange={(e) => { setText(e.target.value); handleTyping() }}

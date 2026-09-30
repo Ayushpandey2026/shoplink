@@ -2,27 +2,15 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Package, ChevronRight, Clock, CheckCircle2, XCircle, Truck } from 'lucide-react'
-import { Tabs, TabsList, TabsTrigger, TabsContent, Badge, Card, CardContent } from '@/components/ui'
+import { Package, ChevronRight } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger, Badge, Card, CardContent } from '@/components/ui'
 import { EmptyState, PageWrapper, LoadingSpinner, orderStatusVariant } from '@/components/shared'
 import { orderAPI } from '@/services/api'
 import { useAuthStore } from '@/store'
 import { format } from 'date-fns'
 
-const statusIcons = {
-  pending: Clock,
-  accepted: CheckCircle2,
-  packed: Package,
-  dispatched: Truck,
-  delivered: CheckCircle2,
-  completed: CheckCircle2,
-  rejected: XCircle,
-  cancelled: XCircle,
-}
-
 const OrderCard = ({ order, onClick }) => {
   const { t } = useTranslation()
-  const StatusIcon = statusIcons[order.status] || Package
 
   return (
     <Card onClick={onClick} className="cursor-pointer hover:shadow-md active:scale-[0.99] transition-all">
@@ -60,33 +48,80 @@ export default function OrdersPage() {
 
   const [activeTab, setActiveTab] = useState('buyer')
   const [orders, setOrders] = useState([])
+  const [expenses, setExpenses] = useState([])
+  const [totalSpent, setTotalSpent] = useState(0)
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
 
   useEffect(() => {
-    fetchOrders()
-  }, [activeTab, statusFilter])
-
-  const fetchOrders = async () => {
-    setLoading(true)
-    try {
-      const params = { page: 1, limit: 50, ...(statusFilter && { status: statusFilter }) }
-      const res = activeTab === 'buyer'
-        ? await orderAPI.getBuyerOrders(params)
-        : await orderAPI.getSellerOrders(params)
-      setOrders(res.data?.orders || [])
-    } catch {
-      setOrders([])
-    } finally {
-      setLoading(false)
+    let active = true
+    const loadOrders = async () => {
+      setLoading(true)
+      try {
+        const params = { page: 1, limit: 50, ...(statusFilter && { status: statusFilter }) }
+        const res = activeTab === 'buyer'
+          ? await orderAPI.getBuyerOrders(params)
+          : await orderAPI.getSellerOrders(params)
+        if (!active) return
+        setOrders(res.data?.orders || [])
+        if (activeTab === 'buyer') {
+          try {
+            const expenseRes = await orderAPI.getBuyerExpenses()
+            if (!active) return
+            setExpenses(expenseRes.data?.expenses || [])
+            setTotalSpent(expenseRes.data?.totalSpent || 0)
+          } catch {
+            if (active) {
+              setExpenses([])
+              setTotalSpent(0)
+            }
+          }
+        } else {
+          setExpenses([])
+          setTotalSpent(0)
+        }
+      } catch {
+        if (active) setOrders([])
+      } finally {
+        if (active) setLoading(false)
+      }
     }
-  }
+    loadOrders()
+    return () => { active = false }
+  }, [activeTab, statusFilter])
 
   const STATUS_FILTERS = ['', 'pending', 'accepted', 'dispatched', 'completed', 'cancelled']
 
   return (
     <PageWrapper>
       <h1 className="text-lg font-bold mb-4">{t('order.orders')}</h1>
+
+      {activeTab === 'buyer' && (
+        <section className="mb-5" aria-label="Purchase expenses">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-sm font-semibold">Purchase expenses</h2>
+            <p className="text-sm font-bold">₹{totalSpent.toLocaleString('en-IN')}</p>
+          </div>
+          {expenses.length > 0 && (
+            <div className="divide-y rounded-lg border">
+              {expenses.map((expense) => (
+                <button
+                  type="button"
+                  key={expense._id}
+                  onClick={() => navigate(`/orders/${expense.order}`)}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-muted/50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">{expense.items?.map((item) => `${item.name} x${item.quantity}`).join(', ')}</span>
+                    <span className="block text-xs text-muted-foreground">{expense.shopName} · {format(new Date(expense.paidAt), 'dd MMM yyyy')}</span>
+                  </span>
+                  <span className="shrink-0 text-sm font-semibold">₹{expense.amount.toLocaleString('en-IN')}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {isSeller && (
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-4">

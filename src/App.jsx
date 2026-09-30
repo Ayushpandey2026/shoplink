@@ -16,6 +16,8 @@ import CompleteProfilePage from '@/pages/auth/CompleteProfilePage'
 
 // Main pages
 import HomePage from '@/pages/home/HomePage'
+import DeadStockMapPage from '@/pages/map/DeadStockMapPage'
+import ShopDeadStockPage from '@/pages/shop/ShopDeadStockPage'
 import ProfilePage from '@/pages/profile/ProfilePage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
 
@@ -116,7 +118,8 @@ function App() {
 
             {/* Main app routes - Home page is PUBLIC (viewable without auth) */}
             <Route path="/" element={<HomePage />} />
-            <Route path="/explore" element={<HomePage />} />
+            <Route path="/explore" element={<DeadStockMapPage />} />
+            <Route path="/shops/:shopId/stock" element={<ShopDeadStockPage />} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
 

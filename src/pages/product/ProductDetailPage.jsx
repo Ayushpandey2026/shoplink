@@ -40,29 +40,30 @@ export default function ProductDetailPage() {
   })
 
   useEffect(() => {
-    fetchProduct()
-  }, [id])
-
-  useEffect(() => {
-    if (!product) return
-    const minimumOrderQuantity = Math.max(1, Number(product.minimumOrderQuantity) || 1)
-    setQuantity(minimumOrderQuantity <= product.availableQuantity ? minimumOrderQuantity : 1)
-  }, [product])
-
-  const fetchProduct = async () => {
-    try {
-      const res = await productAPI.getProduct(id)
-      setProduct(res.data.product)
-      if (!res.data.product.deliveryOptions?.selfPickup) {
-        setDeliveryType('normal')
+    let active = true
+    const loadProduct = async () => {
+      try {
+        const res = await productAPI.getProduct(id)
+        if (!active) return
+        const loadedProduct = res.data.product
+        setProduct(loadedProduct)
+        const minimumOrderQuantity = Math.max(1, Number(loadedProduct.minimumOrderQuantity) || 1)
+        setQuantity(minimumOrderQuantity <= loadedProduct.availableQuantity ? minimumOrderQuantity : 1)
+        if (!loadedProduct.deliveryOptions?.selfPickup) {
+          setDeliveryType(loadedProduct.deliveryOptions?.normalDelivery ? 'normal' : 'urgent')
+        }
+      } catch {
+        if (active) {
+          toast.error('Product not found')
+          navigate('/')
+        }
+      } finally {
+        if (active) setLoading(false)
       }
-    } catch {
-      toast.error('Product not found')
-      navigate('/')
-    } finally {
-      setLoading(false)
     }
-  }
+    loadProduct()
+    return () => { active = false }
+  }, [id, navigate])
 
   const handleStartChat = async () => {
     if (!isAuthenticated) return navigate('/auth/login')
@@ -86,7 +87,6 @@ export default function ProductDetailPage() {
         shopId: product.shop._id,
         items: [{ productId: product._id, quantity }],
         deliveryType,
-        buyerNote: '',
         paymentMethod: 'online',
         ...(deliveryType !== 'self_pickup' && { deliveryAddress })
       }
@@ -96,8 +96,13 @@ export default function ProductDetailPage() {
 
       const script = document.createElement('script')
       script.src = 'https://checkout.razorpay.com/v1/checkout.js'
-      document.body.appendChild(script)
+      script.onerror = async () => {
+        await orderAPI.cancelOrder(order._id, { reason: 'Razorpay checkout could not be loaded' }).catch(() => {})
+        setOrderLoading(false)
+        toast.error('Unable to load Razorpay Checkout. Your stock reservation has been released.')
+      }
       script.onload = () => {
+        let paymentCallbackReceived = false
         const rzp = new window.Razorpay({
           key: razorpay.key,
           amount: razorpay.amount,
@@ -108,6 +113,7 @@ export default function ProductDetailPage() {
           prefill: { name: user?.name, contact: user?.phone },
           theme: { color: '#f97316' },
           handler: async (response) => {
+            paymentCallbackReceived = true
             try {
               await orderAPI.verifyPayment({
                 orderId: order._id,
@@ -115,18 +121,37 @@ export default function ProductDetailPage() {
                 razorpayPaymentId: response.razorpay_payment_id,
                 razorpaySignature: response.razorpay_signature
               })
-              toast.success('Order placed successfully! 🎉')
+              toast.success('Test payment verified and order confirmed.')
+              setOrderLoading(false)
               setShowOrderDialog(false)
               navigate('/orders')
             } catch {
-              toast.error('Payment verification failed')
+              setOrderLoading(false)
+              toast.error('Payment verification is pending. Check your order status shortly.')
             }
           },
-          modal: { ondismiss: () => setOrderLoading(false) }
+          modal: {
+            ondismiss: async () => {
+              if (!paymentCallbackReceived) {
+                await orderAPI.cancelOrder(order._id, { reason: 'Checkout closed before payment' }).catch(() => {})
+              }
+              setOrderLoading(false)
+            }
+          }
+        })
+        rzp.on('payment.failed', async () => {
+          paymentCallbackReceived = true
+          try {
+            await orderAPI.markPaymentFailed(order._id)
+          } catch {
+            toast.error('The checkout will expire and release reserved stock automatically.')
+          }
+          setOrderLoading(false)
+          toast.error('Payment failed. No expense was recorded and reserved stock has been released.')
         })
         rzp.open()
-        setOrderLoading(false)
       }
+      document.body.appendChild(script)
     } catch (err) {
       toast.error(err?.message || 'Failed to place order')
       setOrderLoading(false)
@@ -516,6 +541,20 @@ export default function ProductDetailPage() {
             {deliveryType !== 'self_pickup' && (
               <div className="space-y-2">
                 <Label>Delivery Address</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    placeholder="Recipient name"
+                    value={deliveryAddress.name}
+                    onChange={e => setDeliveryAddress(a => ({ ...a, name: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="10-digit phone"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={deliveryAddress.phone}
+                    onChange={e => setDeliveryAddress(a => ({ ...a, phone: e.target.value.replace(/\D/g, '') }))}
+                  />
+                </div>
                 <Input
                   placeholder="Address"
                   value={deliveryAddress.addressLine}
@@ -526,6 +565,11 @@ export default function ProductDetailPage() {
                     placeholder="City"
                     value={deliveryAddress.city}
                     onChange={e => setDeliveryAddress(a => ({ ...a, city: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="State"
+                    value={deliveryAddress.state}
+                    onChange={e => setDeliveryAddress(a => ({ ...a, state: e.target.value }))}
                   />
                   <Input
                     placeholder="Pincode"
@@ -559,7 +603,7 @@ export default function ProductDetailPage() {
             </div>
 
             <p className="text-xs text-muted-foreground text-center">
-              🔒 {t('order.escrow_note')}
+              Razorpay test mode. This payment does not transfer funds to the seller.
             </p>
           </div>
 
@@ -567,8 +611,8 @@ export default function ProductDetailPage() {
             <Button variant="outline" onClick={() => setShowOrderDialog(false)} className="flex-1">
               Cancel
             </Button>
-            <Button onClick={handlePlaceOrder} disabled={orderLoading} className="flex-1">
-              {orderLoading ? 'Processing...' : `Pay ₹${product.sellingPrice * quantity}`}
+            <Button onClick={handlePlaceOrder} disabled={orderLoading || !hasValidMinimumOrderQuantity} className="flex-1">
+              {orderLoading ? 'Processing...' : `Pay ₹${product.sellingPrice * quantity + (deliveryType === 'self_pickup' ? 0 : deliveryType === 'urgent' ? (product.shop?.settings?.urgentDeliveryCharge || 50) : (product.shop?.settings?.normalDeliveryCharge || 20))}`}
             </Button>
           </DialogFooter>
         </DialogContent>

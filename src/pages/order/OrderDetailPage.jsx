@@ -1,10 +1,10 @@
 // src/pages/order/OrderDetailPage.jsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   CheckCircle2, Circle, Clock, Package, Truck, Home,
-  ChevronLeft, MessageCircle, Star, Phone, MapPin, AlertCircle
+  ChevronLeft, MessageCircle, Star, MapPin, AlertCircle, KeyRound, ShieldCheck
 } from 'lucide-react'
 import {
   Button, Card, CardContent, CardHeader, CardTitle, Badge,
@@ -33,27 +33,96 @@ export default function OrderDetailPage() {
   const [rating, setRating] = useState(5)
   const [comment, setComment] = useState('')
   const [reviewSubmitting, setReviewSubmitting] = useState(false)
+  const [deliveryOtpState, setDeliveryOtpState] = useState(null)
+  const [sellerOtp, setSellerOtp] = useState('')
+  const [deliveryVerifying, setDeliveryVerifying] = useState(false)
 
-  useEffect(() => { fetchOrder() }, [id])
-
-  const fetchOrder = async () => {
+  const fetchOrder = useCallback(async () => {
     try {
       const res = await orderAPI.getOrder(id)
       setOrder(res.data.order)
     } catch { navigate('/orders') } finally { setLoading(false) }
-  }
+  }, [id, navigate])
+
+  useEffect(() => {
+    let active = true
+    const loadOrder = async () => {
+      try {
+        const res = await orderAPI.getOrder(id)
+        if (active) setOrder(res.data.order)
+      } catch {
+        if (active) navigate('/orders')
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    loadOrder()
+    return () => { active = false }
+  }, [id, navigate])
+
+  useEffect(() => {
+    const buyerId = order?.buyer?._id || order?.buyer
+    if (buyerId !== user?._id || order?.status !== 'dispatched') return
+
+    let active = true
+    orderAPI.issueDeliveryOtp(id)
+      .then((res) => {
+        if (active) setDeliveryOtpState({ orderId: id, otp: res.data.otp, expiresAt: res.data.expiresAt })
+      })
+      .catch(() => {
+        if (active) {
+          setDeliveryOtpState({ orderId: id, error: true })
+          toast.error('Unable to load your delivery OTP')
+        }
+      })
+
+    return () => { active = false }
+  }, [id, order?._id, order?.status, order?.buyer, user?._id])
 
   const handleStatusUpdate = async (status, note = '') => {
     setUpdating(true)
     try {
-      await orderAPI.updateStatus(id, { status, note })
+      const payload = { status }
+      if (note.trim()) payload.note = note.trim()
+      await orderAPI.updateStatus(id, payload)
       toast.success(`Order ${status} successfully`)
       fetchOrder()
     } catch { toast.error('Failed to update status') } finally { setUpdating(false) }
   }
 
   const handleConfirmDelivery = async () => {
-    await handleStatusUpdate('completed', 'Delivery confirmed by buyer')
+    setUpdating(true)
+    try {
+      await orderAPI.confirmDelivery(id)
+      toast.success('Receipt confirmed')
+      await fetchOrder()
+    } catch { toast.error('Could not confirm receipt') } finally { setUpdating(false) }
+  }
+
+  const handleVerifyDelivery = async (event) => {
+    event.preventDefault()
+    setDeliveryVerifying(true)
+    try {
+      await orderAPI.verifyDeliveryOtp(id, { otp: sellerOtp })
+      setSellerOtp('')
+      toast.success('Delivery verified')
+      await fetchOrder()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || 'Delivery OTP could not be verified')
+    } finally {
+      setDeliveryVerifying(false)
+    }
+  }
+
+  const handleRotateDeliveryOtp = async () => {
+    setDeliveryOtpState({ orderId: id, loading: true })
+    try {
+      const res = await orderAPI.rotateDeliveryOtp(id)
+      setDeliveryOtpState({ orderId: id, otp: res.data.otp, expiresAt: res.data.expiresAt })
+    } catch {
+      setDeliveryOtpState({ orderId: id, error: true })
+      toast.error('Unable to generate a new delivery OTP')
+    }
   }
 
   const handleCancelOrder = async () => {
@@ -92,6 +161,7 @@ export default function OrderDetailPage() {
 
   const isBuyer = order.buyer?._id === user?._id || order.buyer === user?._id
   const isSeller = order.seller?._id === user?._id || order.seller === user?._id
+  const buyerOtp = deliveryOtpState?.orderId === id ? deliveryOtpState : null
   const currentStepIdx = STATUS_STEPS.indexOf(order.status)
 
   return (
@@ -121,7 +191,7 @@ export default function OrderDetailPage() {
                   const isCurrent = idx === currentStepIdx
                   return (
                     <div key={step} className="flex items-center gap-3">
-                      <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-colors ${
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 border-2 transition-colors ${
                         isDone ? 'bg-orange-500 border-orange-500' : 'bg-background border-border'
                       }`}>
                         <Icon className={`h-4 w-4 ${isDone ? 'text-white' : 'text-muted-foreground'}`} />
@@ -148,7 +218,7 @@ export default function OrderDetailPage() {
           <Card className="border-red-200 dark:border-red-900">
             <CardContent className="pt-4">
               <div className="flex gap-2">
-                <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                <AlertCircle className="h-5 w-5 text-red-500 shrink-0" />
                 <div>
                   <p className="font-medium text-sm text-red-600 capitalize">Order {order.status}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -186,9 +256,29 @@ export default function OrderDetailPage() {
                 </Button>
               )}
               {order.status === 'dispatched' && (
-                <Button className="w-full" disabled={updating} onClick={() => handleStatusUpdate('delivered')}>
-                  🏠 Mark as Delivered
-                </Button>
+                <form className="space-y-3" onSubmit={handleVerifyDelivery}>
+                  <div>
+                    <p className="text-sm font-medium flex items-center gap-2"><ShieldCheck className="h-4 w-4" />Delivery Verification</p>
+                    <p className="text-xs text-muted-foreground mt-1">Enter the code shown in the buyer's authenticated ShopLink session. Keep each account signed in on its own device or browser profile.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <input
+                      aria-label="Buyer's delivery OTP"
+                      autoComplete="one-time-code"
+                      inputMode="numeric"
+                      maxLength={6}
+                      pattern="[0-9]{6}"
+                      required
+                      value={sellerOtp}
+                      onChange={(event) => setSellerOtp(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="6-digit OTP"
+                      className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-center font-mono text-lg tracking-[0.2em]"
+                    />
+                    <Button type="submit" disabled={deliveryVerifying || sellerOtp.length !== 6}>
+                      {deliveryVerifying ? 'Verifying...' : 'Verify'}
+                    </Button>
+                  </div>
+                </form>
               )}
               {updating && <LoadingSpinner size="sm" className="py-1" />}
             </CardContent>
@@ -198,6 +288,28 @@ export default function OrderDetailPage() {
         {/* Buyer Action Buttons */}
         {isBuyer && (
           <div className="space-y-2">
+            {order.status === 'dispatched' && (
+              <Card>
+                <CardHeader><CardTitle className="text-sm flex items-center gap-2"><KeyRound className="h-4 w-4" />Delivery Verification</CardTitle></CardHeader>
+                <CardContent className="pt-0">
+                  {!buyerOtp || buyerOtp.loading ? (
+                    <LoadingSpinner size="sm" className="py-2" />
+                  ) : buyerOtp.error ? (
+                    <p className="text-sm text-muted-foreground">Your delivery code is temporarily unavailable.</p>
+                  ) : (
+                    <>
+                      <p className="rounded-md bg-muted py-3 text-center font-mono text-3xl font-bold tracking-[0.3em]">{buyerOtp.otp}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Show this code to the seller at handoff. Keep this buyer session signed in on your device. Expires {format(new Date(buyerOtp.expiresAt), 'dd MMM, HH:mm')}.
+                      </p>
+                    </>
+                  )}
+                  <Button variant="outline" className="mt-3 w-full" onClick={handleRotateDeliveryOtp} disabled={!buyerOtp || buyerOtp.loading}>
+                    Generate a new code
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
             {order.status === 'delivered' && (
               <Button className="w-full gap-2" onClick={handleConfirmDelivery} disabled={updating}>
                 <CheckCircle2 className="h-4 w-4" />
@@ -224,7 +336,7 @@ export default function OrderDetailPage() {
           <CardContent className="pt-0 space-y-3">
             {order.items?.map((item, i) => (
               <div key={i} className="flex gap-3">
-                <div className="h-14 w-14 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                <div className="h-14 w-14 rounded-lg overflow-hidden bg-muted shrink-0">
                   {item.image ? (
                     <img src={item.image} className="h-full w-full object-cover" alt="" />
                   ) : (
@@ -284,7 +396,7 @@ export default function OrderDetailPage() {
             </div>
             {order.deliveryAddress && (
               <div className="flex gap-2">
-                <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+                <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                 <span className="text-muted-foreground">
                   {order.deliveryAddress.addressLine}, {order.deliveryAddress.city}, {order.deliveryAddress.pincode}
                 </span>

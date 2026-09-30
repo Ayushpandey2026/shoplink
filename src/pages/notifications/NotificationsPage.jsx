@@ -1,7 +1,8 @@
 // src/pages/notifications/NotificationsPage.jsx
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Bell, BellOff, CheckCheck } from 'lucide-react'
+import { BellOff, CheckCheck } from 'lucide-react'
 import { Button, Badge, Card, CardContent } from '@/components/ui'
 import { PageWrapper, EmptyState, LoadingSpinner } from '@/components/shared'
 import { notificationAPI } from '@/services/api'
@@ -19,22 +20,28 @@ const typeIcon = {
 
 export default function NotificationsPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const { setUnreadCount } = useNotificationStore()
   const [notifications, setNotifications] = useState([])
   const [loading, setLoading] = useState(true)
   const [unreadCount, setLocalUnread] = useState(0)
 
   useEffect(() => {
-    fetchNotifications()
+    let active = true
+    notificationAPI.getNotifications({ limit: 50 })
+      .then((res) => {
+        if (!active) return
+        setNotifications(res.data.notifications || [])
+        setLocalUnread(res.data.unreadCount || 0)
+      })
+      .catch(() => {
+        if (active) setNotifications([])
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
   }, [])
-
-  const fetchNotifications = async () => {
-    try {
-      const res = await notificationAPI.getNotifications({ limit: 50 })
-      setNotifications(res.data.notifications || [])
-      setLocalUnread(res.data.unreadCount || 0)
-    } catch {} finally { setLoading(false) }
-  }
 
   const markAllRead = async () => {
     try {
@@ -42,7 +49,9 @@ export default function NotificationsPage() {
       setNotifications(prev => prev.map(n => ({ ...n, isRead: true })))
       setLocalUnread(0)
       setUnreadCount(0)
-    } catch {}
+    } catch {
+      return
+    }
   }
 
   const markOneRead = async (id) => {
@@ -50,7 +59,9 @@ export default function NotificationsPage() {
       await notificationAPI.markAsRead({ ids: [id] })
       setNotifications(prev => prev.map(n => n._id === id ? { ...n, isRead: true } : n))
       setLocalUnread(prev => Math.max(0, prev - 1))
-    } catch {}
+    } catch {
+      return
+    }
   }
 
   if (loading) return <LoadingSpinner className="py-20" />
@@ -82,7 +93,10 @@ export default function NotificationsPage() {
           {notifications.map(notif => (
             <Card
               key={notif._id}
-              onClick={() => !notif.isRead && markOneRead(notif._id)}
+              onClick={() => {
+                if (!notif.isRead) markOneRead(notif._id)
+                if (notif.referenceType === 'order' && notif.referenceId) navigate(`/orders/${notif.referenceId}`)
+              }}
               className={`cursor-pointer transition-colors ${!notif.isRead ? 'border-orange-200 bg-orange-50/50 dark:border-orange-900 dark:bg-orange-950/10' : ''}`}
             >
               <CardContent className="p-3 flex gap-3">
