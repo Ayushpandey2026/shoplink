@@ -2,9 +2,9 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { Suspense, useEffect } from 'react'
-import { useAuthStore, useUIStore } from '@/store'
-import { authAPI } from '@/services/api'
-import { initSocket, disconnectSocket } from '@/lib/socket'
+import { useAuthStore, useUIStore, useNotificationStore } from '@/store'
+import { authAPI, notificationAPI } from '@/services/api'
+import { initSocket, disconnectSocket, getSocket } from '@/lib/socket'
 import { Navbar } from '@/components/shared/Navbar'
 import { BottomNav } from '@/components/shared/BottomNav'
 import { PageLoader } from '@/components/shared'
@@ -78,7 +78,7 @@ const PublicOnlyRoute = ({ children }) => {
 }
 
 function App() {
-  const { isAuthenticated, token, updateUser } = useAuthStore()
+  const { isAuthenticated, token, user, updateUser } = useAuthStore()
   const { theme } = useUIStore()
 
   useEffect(() => {
@@ -101,12 +101,54 @@ function App() {
   }, [isAuthenticated, token, updateUser])
 
   useEffect(() => {
+    const notificationStore = useNotificationStore.getState()
+    if (!isAuthenticated || !token) {
+      notificationStore.setNotifications([])
+      notificationStore.setUnreadCount(0)
+      return
+    }
+
+    notificationStore.setNotifications([])
+    notificationStore.setUnreadCount(0)
+    let active = true
+    let requestSequence = 0
+    const syncUnreadCount = async () => {
+      const requestId = ++requestSequence
+      try {
+        const response = await notificationAPI.getUnreadCount()
+        if (active && requestId === requestSequence) {
+          useNotificationStore.getState().setUnreadCount(Number(response?.data?.unreadCount) || 0)
+        }
+      } catch {
+        // Keep the last known count if the API is temporarily unavailable.
+      }
+    }
+
+    const handleNewNotification = (notification) => {
+      const recipientId = notification?.recipient?._id || notification?.recipient
+      const currentUserId = user?._id || user?.id
+      if (recipientId && currentUserId && String(recipientId) !== String(currentUserId)) return
+      if (notification) useNotificationStore.getState().addNotification(notification)
+      syncUnreadCount()
+    }
+
+    syncUnreadCount()
+    const socket = getSocket()
+    socket?.on('notification:new', handleNewNotification)
+
+    return () => {
+      active = false
+      socket?.off('notification:new', handleNewNotification)
+    }
+  }, [isAuthenticated, token, user?._id, user?.id])
+
+  useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
   }, [theme])
 
   return (
     <BrowserRouter>
-      <div className="min-h-screen bg-background text-foreground">
+      <div className={`min-h-screen bg-background text-foreground ${isAuthenticated ? 'pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
         <Navbar />
 
         <Suspense fallback={<PageLoader />}>

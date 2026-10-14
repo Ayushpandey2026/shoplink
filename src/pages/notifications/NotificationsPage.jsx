@@ -21,10 +21,8 @@ const typeIcon = {
 export default function NotificationsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { setUnreadCount } = useNotificationStore()
-  const [notifications, setNotifications] = useState([])
+  const { notifications, setNotifications, unreadCount, setUnreadCount, markNotificationRead, markAllRead: markAllReadInStore } = useNotificationStore()
   const [loading, setLoading] = useState(true)
-  const [unreadCount, setLocalUnread] = useState(0)
 
   useEffect(() => {
     let active = true
@@ -32,7 +30,7 @@ export default function NotificationsPage() {
       .then((res) => {
         if (!active) return
         setNotifications(res.data.notifications || [])
-        setLocalUnread(res.data.unreadCount || 0)
+        setUnreadCount(res.data.unreadCount || 0)
       })
       .catch(() => {
         if (active) setNotifications([])
@@ -41,13 +39,12 @@ export default function NotificationsPage() {
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [])
+  }, [setNotifications, setUnreadCount])
 
   const markAllRead = async () => {
     try {
       await notificationAPI.markAsRead({ ids: 'all' })
-      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })))
-      setLocalUnread(0)
+      markAllReadInStore()
       setUnreadCount(0)
     } catch {
       return
@@ -57,8 +54,7 @@ export default function NotificationsPage() {
   const markOneRead = async (id) => {
     try {
       await notificationAPI.markAsRead({ ids: [id] })
-      setNotifications(prev => prev.map(n => n._id === id ? { ...n, isRead: true } : n))
-      setLocalUnread(prev => Math.max(0, prev - 1))
+      markNotificationRead(id)
     } catch {
       return
     }
@@ -93,30 +89,35 @@ export default function NotificationsPage() {
           {notifications.map(notif => (
             <Card
               key={notif._id}
-              onClick={() => {
-                if (!notif.isRead) markOneRead(notif._id)
-                if (notif.referenceType === 'order' && notif.referenceId) navigate(`/orders/${notif.referenceId}`)
-              }}
-              className={`cursor-pointer transition-colors ${!notif.isRead ? 'border-orange-200 bg-orange-50/50 dark:border-orange-900 dark:bg-orange-950/10' : ''}`}
+              className={`transition-colors ${!notif.isRead ? 'border-orange-200 bg-orange-50/50 dark:border-orange-900 dark:bg-orange-950/10' : ''}`}
             >
-              <CardContent className="p-3 flex gap-3">
-                <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-lg">
-                  {typeIcon[notif.type] || '📢'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className={`text-sm leading-snug ${!notif.isRead ? 'font-semibold' : 'font-medium'}`}>
-                      {notif.title}
-                    </p>
-                    {!notif.isRead && (
-                      <div className="h-2 w-2 rounded-full bg-orange-500 flex-shrink-0 mt-1.5" />
-                    )}
+              <CardContent className="p-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!notif.isRead) markOneRead(notif._id)
+                    if (notif.referenceType === 'order' && notif.referenceId) navigate(`/orders/${notif.referenceId}`)
+                  }}
+                  className="flex w-full gap-3 p-3 text-left"
+                >
+                  <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-lg">
+                    {typeIcon[notif.type] || '📢'}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{notif.body}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
-                  </p>
-                </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className={`text-sm leading-snug ${!notif.isRead ? 'font-semibold' : 'font-medium'}`}>
+                        {notif.title}
+                      </p>
+                      {!notif.isRead && (
+                        <div className="h-2 w-2 rounded-full bg-orange-500 flex-shrink-0 mt-1.5" />
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{notif.body}</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      {formatDistanceToNow(new Date(notif.createdAt), { addSuffix: true })}
+                    </p>
+                  </div>
+                </button>
               </CardContent>
             </Card>
           ))}

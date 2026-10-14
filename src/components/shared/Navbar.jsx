@@ -1,30 +1,26 @@
 // src/components/shared/Navbar.jsx
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Bell, MessageSquare, ShoppingBag, Moon, Sun, Globe, Store } from 'lucide-react'
+import { Bell, MessageSquare, ShoppingBag, Moon, Sun, Globe, Store, Home, Search, PlusCircle } from 'lucide-react'
 import { useAuthStore, useUIStore, useNotificationStore } from '@/store'
-import { Button, Avatar, AvatarImage, AvatarFallback, Badge } from '@/components/ui'
-import { authAPI } from '@/services/api'
-import { disconnectSocket } from '@/lib/socket'
-import toast from 'react-hot-toast'
+import { Button, Avatar, AvatarImage, AvatarFallback } from '@/components/ui'
 
 export const Navbar = () => {
   const { t, i18n } = useTranslation()
-  const { user, logout, isAuthenticated } = useAuthStore()
+  const { user, isAuthenticated, isSeller } = useAuthStore()
   const { theme, setTheme, setLanguage, unreadMessages } = useUIStore()
   const { unreadCount } = useNotificationStore()
   const role = user?.role && typeof user.role === 'string' ? user.role.toLowerCase() : undefined
   const navigate = useNavigate()
-
-  const handleLogout = async () => {
-    try {
-      await authAPI.logout({})
-    } catch {}
-    disconnectSocket()
-    logout()
-    navigate('/auth/login')
-    toast.success('Logged out successfully')
-  }
+  const navigationItems = [
+    { to: '/', label: t('nav.home'), icon: Home, end: true },
+    { to: '/explore', label: t('nav.explore'), icon: Search },
+    ...(isSeller ? [{ to: '/sell/add', label: t('nav.sell'), icon: PlusCircle }] : []),
+    ...(isAuthenticated ? [
+      { to: '/orders', label: t('nav.orders'), icon: ShoppingBag },
+      { to: '/chat', label: t('nav.chat'), icon: MessageSquare },
+    ] : []),
+  ]
 
   const toggleLang = () => {
     const newLang = i18n.language === 'hi' ? 'en' : 'hi'
@@ -33,13 +29,27 @@ export const Navbar = () => {
   }
 
   return (
-    <nav className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <nav className="sticky top-0 z-40 w-full border-b border-border bg-[hsl(var(--background))] shadow-sm">
       <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 font-bold text-lg text-orange-500">
           <ShoppingBag className="h-6 w-6" />
           <span className="hidden sm:block">ShopLink</span>
         </Link>
+
+        <div className="hidden lg:flex flex-1 items-center justify-center gap-1">
+          {navigationItems.map(({ to, label, icon: Icon, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) => `flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors ${isActive ? 'bg-muted text-orange-600 dark:text-orange-400' : 'text-foreground hover:bg-muted'}`}
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </NavLink>
+          ))}
+        </div>
 
         {/* Right Actions */}
         <div className="flex items-center gap-1">
@@ -78,11 +88,18 @@ export const Navbar = () => {
               </Button>
 
               {/* Notifications */}
-              <Button variant="ghost" size="icon-sm" onClick={() => navigate('/notifications')} className="relative">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => navigate('/notifications')}
+                className="relative overflow-visible"
+                aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications, no unread notifications'}
+                title={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
+              >
                 <Bell className="h-4 w-4" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 text-white text-[10px] rounded-full flex items-center justify-center">
-                    {unreadCount > 9 ? '9+' : unreadCount}
+                  <span aria-hidden="true" className="absolute -right-1.5 -top-1 min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[9px] font-semibold leading-none flex items-center justify-center ring-2 ring-[hsl(var(--background))]">
+                    {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
               </Button>

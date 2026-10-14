@@ -178,6 +178,7 @@ export const reviewAPI = {
 // ── Notification APIs ─────────────────────────────────────────────
 export const notificationAPI = {
   getNotifications: (params) => api.get('/notifications', { params }),
+  getUnreadCount: (config = {}) => api.get('/notifications/unread-count', config),
   markAsRead: (data) => api.patch('/notifications/read', data),
 }
 

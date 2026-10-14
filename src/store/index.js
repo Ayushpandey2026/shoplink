@@ -5,7 +5,7 @@ import { persist } from 'zustand/middleware'
 // ── Auth Store ────────────────────────────────────────────────────
 export const useAuthStore = create(
   persist(
-    (set, get) => ({
+    (set) => ({
       user: null,
       token: null,
       refreshToken: null,
@@ -111,14 +111,28 @@ export const useNotificationStore = create((set) => ({
   notifications: [],
   unreadCount: 0,
 
-  addNotification: (notification) => set((s) => ({
-    notifications: [notification, ...s.notifications].slice(0, 50),
-    unreadCount: s.unreadCount + 1,
-  })),
+  addNotification: (notification) => set((state) => {
+    if (notification?._id && state.notifications.some((item) => item._id === notification._id)) return state
+    return {
+      notifications: [notification, ...state.notifications].slice(0, 50),
+      unreadCount: state.unreadCount + (notification?.isRead ? 0 : 1),
+    }
+  }),
 
   setNotifications: (notifications) => set({ notifications }),
   setUnreadCount: (count) => set({ unreadCount: count }),
-  markAllRead: () => set({ unreadCount: 0 }),
+  markNotificationRead: (id) => set((state) => {
+    const notification = state.notifications.find((item) => item._id === id)
+    if (!notification || notification.isRead) return state
+    return {
+      notifications: state.notifications.map((item) => item._id === id ? { ...item, isRead: true } : item),
+      unreadCount: Math.max(0, state.unreadCount - 1),
+    }
+  }),
+  markAllRead: () => set((state) => ({
+    notifications: state.notifications.map((notification) => ({ ...notification, isRead: true })),
+    unreadCount: 0,
+  })),
 }))
 
 // ── Cart / Order Flow Store ───────────────────────────────────────

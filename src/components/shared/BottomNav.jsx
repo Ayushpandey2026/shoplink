@@ -1,5 +1,5 @@
 // src/components/shared/BottomNav.jsx
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Home, Search, PlusCircle, ShoppingBag, MessageSquare } from 'lucide-react'
 import { useAuthStore } from '@/store'
@@ -8,8 +8,6 @@ import { cn } from '@/lib/utils'
 export const BottomNav = () => {
   const { t } = useTranslation()
   const { isAuthenticated, isSeller } = useAuthStore()
-  const navigate = useNavigate()
-
   const navItems = [
     { to: '/', icon: Home, label: t('nav.home') },
     { to: '/explore', icon: Search, label: t('nav.explore') },
@@ -21,7 +19,7 @@ export const BottomNav = () => {
   if (!isAuthenticated) return null
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background pb-safe">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-[hsl(var(--background))] pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(15,23,42,0.08)] lg:hidden">
       <div className="flex items-center justify-around px-2 py-1 max-w-lg mx-auto">
         {navItems.map(({ to, icon: Icon, label, accent }) => (
           <NavLink
