@@ -2,8 +2,24 @@
 import axios from 'axios'
 import toast from 'react-hot-toast'
 
+const configuredApiUrl = import.meta.env.VITE_API_URL?.trim()
+const isProductionApiUrlConfigured = (() => {
+  if (!import.meta.env.PROD) return true
+  if (!configuredApiUrl) return false
+
+  try {
+    const url = new URL(configuredApiUrl)
+    const isLocalHost = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
+    return url.protocol === 'https:'
+      && !isLocalHost
+      && url.pathname.replace(/\/+$/, '').endsWith('/api')
+  } catch {
+    return false
+  }
+})()
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: configuredApiUrl || '/api',
   timeout: 30000,
   withCredentials: true,
 })
@@ -86,11 +102,15 @@ api.interceptors.response.use(
     const message = response?.data?.message || response?.message || error.message || 'Something went wrong';
     
     // Toast only for genuine errors, skip 401 to avoid unnecessary spam during re-authentication routing
-    if (response?.status !== 401) {
+    if (response?.status !== 401 && !originalRequest?.suppressErrorToast) {
       toast.error(message);
     }
 
-    return Promise.reject(response?.data || error);
+    const failure = response?.data || error
+    if (response && failure && typeof failure === 'object') {
+      failure.httpStatus = response.status
+    }
+    return Promise.reject(failure)
   }
 );
 
@@ -124,7 +144,19 @@ export const shopAPI = {
 
 // ── Product APIs ──────────────────────────────────────────────────
 export const productAPI = {
-  getProducts: (params, config = {}) => api.get('/products', { params, ...config }),
+  getProducts: (params, config = {}) => {
+    if (!isProductionApiUrlConfigured) {
+      return Promise.reject(new Error(
+        'Production product API is not configured. Set VITE_API_URL to the public HTTPS backend URL ending in /api, then redeploy the frontend.'
+      ))
+    }
+
+    return api.get('/products', {
+      params,
+      ...config,
+      suppressErrorToast: true,
+    })
+  },
   getProduct: (id) => api.get(`/products/${id}`),
   getMyProducts: (params) => api.get('/products/my', { params }),
   createProduct: (data) => api.post('/products', data, { headers: { 'Content-Type': 'multipart/form-data' } }),

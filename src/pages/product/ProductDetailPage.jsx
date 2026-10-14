@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import {
   MapPin, Star, Package, Truck, ShoppingBag,
   MessageCircle, Share2, ChevronLeft, CheckCircle2,
-  AlertCircle, Store, Zap, BarChart2
+  AlertCircle, Store, Zap, BarChart2, Navigation
 } from 'lucide-react'
 import {
   Button, Badge, Card, CardContent, CardHeader, CardTitle,
@@ -17,6 +17,8 @@ import {
 import { PageLoader } from '@/components/shared'
 import { productAPI, orderAPI, chatAPI } from '@/services/api'
 import { useAuthStore } from '@/store'
+import LocationPicker from '@/components/map/LocationPicker'
+import { getCurrentDeviceLocation, isValidCoordinates } from '@/utils/geolocation'
 import { format, formatDistanceToNow } from 'date-fns'
 import toast from 'react-hot-toast'
 
@@ -38,6 +40,47 @@ export default function ProductDetailPage() {
     phone: user?.phone || '',
     addressLine: '', city: '', state: '', pincode: ''
   })
+  const [buyerLocation, setBuyerLocation] = useState(null)
+  const [buyerLocationInputs, setBuyerLocationInputs] = useState({ latitude: '', longitude: '' })
+  const [buyerLocationLoading, setBuyerLocationLoading] = useState(false)
+  const [buyerLocationError, setBuyerLocationError] = useState('')
+
+  const selectBuyerLocation = (location) => {
+    setBuyerLocation(location)
+    setBuyerLocationInputs({
+      latitude: String(location.latitude),
+      longitude: String(location.longitude),
+    })
+    setBuyerLocationError('')
+  }
+
+  const updateBuyerLocationInput = (coordinate, value) => {
+    const nextInputs = { ...buyerLocationInputs, [coordinate]: value }
+    setBuyerLocationInputs(nextInputs)
+    if (!nextInputs.latitude.trim() || !nextInputs.longitude.trim()) {
+      setBuyerLocation(null)
+      setBuyerLocationError('')
+      return
+    }
+    const location = {
+      latitude: Number(nextInputs.latitude),
+      longitude: Number(nextInputs.longitude),
+    }
+    setBuyerLocation(isValidCoordinates(location) ? location : null)
+  }
+
+  const handleLocateBuyer = async () => {
+    if (buyerLocationLoading) return
+    setBuyerLocationLoading(true)
+    setBuyerLocationError('')
+    try {
+      selectBuyerLocation(await getCurrentDeviceLocation())
+    } catch (error) {
+      setBuyerLocationError(error.message)
+    } finally {
+      setBuyerLocationLoading(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -81,12 +124,17 @@ export default function ProductDetailPage() {
 
   const handlePlaceOrder = async () => {
     if (!isAuthenticated) return navigate('/auth/login')
+    if (!isValidCoordinates(buyerLocation)) {
+      setBuyerLocationError('Select your current location or enter your coordinates to continue.')
+      return
+    }
     setOrderLoading(true)
     try {
       const orderData = {
         shopId: product.shop._id,
         items: [{ productId: product._id, quantity }],
         deliveryType,
+        buyerLocation,
         paymentMethod: 'online',
         ...(deliveryType !== 'self_pickup' && { deliveryAddress })
       }
@@ -456,6 +504,56 @@ export default function ProductDetailPage() {
           </DialogHeader>
 
           <div className="space-y-4 py-2">
+            <section className="space-y-2 rounded-lg border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <Label>Your location for distance check</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Used only to check the 50 km purchase limit.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLocateBuyer}
+                  disabled={buyerLocationLoading}
+                >
+                  <Navigation className="mr-1 h-4 w-4" />
+                  {buyerLocationLoading ? 'Locating…' : 'Use Current Location'}
+                </Button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  aria-label="Buyer latitude"
+                  type="number"
+                  min="-90"
+                  max="90"
+                  step="any"
+                  placeholder="Latitude"
+                  value={buyerLocationInputs.latitude}
+                  onChange={(event) => updateBuyerLocationInput('latitude', event.target.value)}
+                />
+                <Input
+                  aria-label="Buyer longitude"
+                  type="number"
+                  min="-180"
+                  max="180"
+                  step="any"
+                  placeholder="Longitude"
+                  value={buyerLocationInputs.longitude}
+                  onChange={(event) => updateBuyerLocationInput('longitude', event.target.value)}
+                />
+              </div>
+              {buyerLocation && (
+                <p className="text-xs text-green-700">
+                  Selected: {buyerLocation.latitude.toFixed(5)}, {buyerLocation.longitude.toFixed(5)}
+                </p>
+              )}
+              <LocationPicker location={buyerLocation} onChange={selectBuyerLocation} label="Buyer location" />
+              {buyerLocationError && <p role="alert" className="text-xs text-destructive">{buyerLocationError}</p>}
+            </section>
+
             {/* Quantity */}
             <div className="space-y-1.5">
               <Label>Quantity ({product.unit})</Label>
@@ -611,7 +709,7 @@ export default function ProductDetailPage() {
             <Button variant="outline" onClick={() => setShowOrderDialog(false)} className="flex-1">
               Cancel
             </Button>
-            <Button onClick={handlePlaceOrder} disabled={orderLoading || !hasValidMinimumOrderQuantity} className="flex-1">
+            <Button onClick={handlePlaceOrder} disabled={orderLoading || buyerLocationLoading || !isValidCoordinates(buyerLocation) || !hasValidMinimumOrderQuantity} className="flex-1">
               {orderLoading ? 'Processing...' : `Pay ₹${product.sellingPrice * quantity + (deliveryType === 'self_pickup' ? 0 : deliveryType === 'urgent' ? (product.shop?.settings?.urgentDeliveryCharge || 50) : (product.shop?.settings?.normalDeliveryCharge || 20))}`}
             </Button>
           </DialogFooter>

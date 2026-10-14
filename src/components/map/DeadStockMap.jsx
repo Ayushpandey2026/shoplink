@@ -8,6 +8,8 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import { Button } from '@/components/ui'
 import api from '@/services/api'
 import { useNavigate } from 'react-router-dom'
+import { useLocationStore } from '@/store'
+import { centerMapOnLocation, getCurrentDeviceLocation, toLeafletPosition } from '@/utils/geolocation'
 
 const DEFAULT_CENTER = [28.6139, 77.209]
 const DEFAULT_ZOOM = 10
@@ -69,6 +71,7 @@ function MapEvents({ onMoveEnd, onReady }) {
 
 export default function DeadStockMap() {
   const navigate = useNavigate()
+  const setCurrentLocation = useLocationStore((state) => state.setLocation)
   const mapRef = useRef(null)
   const fetchDebounceRef = useRef(null)
   const requestRef = useRef(0)
@@ -85,6 +88,7 @@ export default function DeadStockMap() {
   const [maxPrice, setMaxPrice] = useState('')
   const [maxDistance, setMaxDistance] = useState('10')
   const [userLocation, setUserLocation] = useState(null)
+  const [locating, setLocating] = useState(false)
   const [locationMessage, setLocationMessage] = useState('')
 
   const query = useMemo(() => ({
@@ -161,13 +165,6 @@ export default function DeadStockMap() {
       if (requestId !== requestRef.current) return
       setShops(normalizedItems)
 
-      if (mapRef.current && normalizedItems.length > 0 && !mapRef.current.__shoplinkMapCentered) {
-        const avgLat = normalizedItems.reduce((sum, shop) => sum + shop.latitude, 0) / normalizedItems.length
-        const avgLng = normalizedItems.reduce((sum, shop) => sum + shop.longitude, 0) / normalizedItems.length
-        mapRef.current.flyTo([avgLat, avgLng], 12, { animate: true, duration: 0.7 })
-        mapRef.current.__shoplinkMapCentered = true
-      }
-
       if (manual) setSearchAreaVisible(false)
     } catch (err) {
       if (err?.name === 'CanceledError' || err?.name === 'AbortError') return
@@ -217,36 +214,25 @@ export default function DeadStockMap() {
     }, 250)
   }, [query, fetchMapShops])
 
-  const handleLocateMe = useCallback(() => {
-    if (!navigator.geolocation) {
-      setLocationMessage('Location is unavailable in this browser.')
-      return
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const nextPosition = [position.coords.latitude, position.coords.longitude]
+  const handleLocateMe = useCallback(async () => {
+    if (locating) return
+    setLocating(true)
+    setLocationMessage('')
+    try {
+        const location = await getCurrentDeviceLocation()
+        const nextPosition = toLeafletPosition(location)
         setUserLocation(nextPosition)
-        setLocationMessage('')
+        setCurrentLocation(location)
 
-        if (mapRef.current) {
-          mapRef.current.flyTo(nextPosition, 15, {
-            animate: true,
-            duration: 0.8,
-          })
-        }
+        centerMapOnLocation(mapRef.current, location)
 
         fetchMapShops({ position: nextPosition, manual: true })
-      },
-      () => {
-        setLocationMessage('Location permission is required to find shops near you.')
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-      }
-    )
-  }, [fetchMapShops])
+    } catch (error) {
+      setLocationMessage(error.message)
+    } finally {
+      setLocating(false)
+    }
+  }, [fetchMapShops, locating, setCurrentLocation])
 
   const handleResetFilters = useCallback(() => {
     setSearch('')
@@ -400,11 +386,12 @@ export default function DeadStockMap() {
         <button
           type="button"
           onClick={handleLocateMe}
-          className="absolute bottom-24 right-3 z-[500] flex h-12 w-12 items-center justify-center rounded-full border border-sky-200 bg-white text-xl shadow-lg transition hover:scale-[1.02]"
+          disabled={locating}
+          className="absolute bottom-24 right-3 z-[500] flex h-12 w-12 items-center justify-center rounded-full border border-sky-200 bg-white text-xl shadow-lg transition hover:scale-[1.02] disabled:cursor-wait disabled:opacity-60"
           aria-label="Locate me"
-          title="Locate me"
+          title={locating ? 'Getting your current location' : 'Locate me'}
         >
-          ⦿
+          {locating ? '…' : '⦿'}
         </button>
 
         {loading && (

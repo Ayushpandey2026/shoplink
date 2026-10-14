@@ -2,14 +2,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Search, SlidersHorizontal, MapPin, Zap, Clock, Tag, X } from 'lucide-react'
-import { Button, Input, Badge, Card, CardContent, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui'
-import { ProductCard, ProductSkeleton, EmptyState, SectionHeader, PageWrapper } from '@/components/shared'
+import { Search, SlidersHorizontal, X } from 'lucide-react'
+import { Button, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui'
+import { ProductCard, ProductSkeleton, EmptyState, ErrorState, SectionHeader, PageWrapper } from '@/components/shared'
 import { productAPI } from '@/services/api'
-import { useLocationStore, useAuthStore } from '@/store'
 import { useDebounce } from '@/hooks/useDebounce'
-import { useAuthRequired } from '@/hooks/useAuthRequired'
-import toast from 'react-hot-toast'
+
+const PRODUCT_FETCH_ATTEMPTS = 3
+
+const isTransientProductError = (error) => {
+  const status = error?.httpStatus ?? error?.response?.status
+  if (status) return status === 429 || status >= 500
+  return ['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT', 'ECONNRESET'].includes(error?.code)
+}
 
 const CATEGORIES = [
   { value: 'grocery', label: 'Grocery', emoji: '🛒' },
@@ -32,37 +37,28 @@ const SORT_OPTIONS = [
 export default function HomePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuthStore()
-  const { checkAuth } = useAuthRequired()
-  const { latitude, longitude, error: locationError, requestLocation } = useLocationStore()
-
   const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
+  const [productsError, setProductsError] = useState('')
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(true)
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
   const [sortBy, setSortBy] = useState('createdAt')
-  const [sortOrder, setSortOrder] = useState('desc')
+  const sortOrder = 'desc'
   const [showFilters, setShowFilters] = useState(false)
-  const [radiusKm, setRadiusKm] = useState(10)
   const requestIdRef = useRef(0)
   const abortControllerRef = useRef(null)
+  const pageRef = useRef(1)
 
   const debouncedSearch = useDebounce(search, 400)
-  const locationReady = Boolean((latitude && longitude) || locationError)
-
-  // Request location on mount
-  useEffect(() => {
-    if (!latitude && !longitude) requestLocation()
-  }, [latitude, longitude, requestLocation])
-
   const fetchProducts = useCallback(async (resetPage = false, pageToFetch = 1) => {
     const requestId = ++requestIdRef.current
     abortControllerRef.current?.abort()
     const abortController = new AbortController()
     abortControllerRef.current = abortController
     setLoading(true)
+    setProductsError('')
     try {
       const params = {
         page: pageToFetch,
@@ -71,10 +67,25 @@ export default function HomePage() {
         sortOrder,
         ...(debouncedSearch && { search: debouncedSearch }),
         ...(category && { category }),
-        ...(latitude && longitude && { lat: latitude, lng: longitude, radiusKm }),
       }
 
-      const res = await productAPI.getProducts(params, { signal: abortController.signal })
+      let res
+      for (let attempt = 0; attempt < PRODUCT_FETCH_ATTEMPTS; attempt += 1) {
+        try {
+          res = await productAPI.getProducts(params, { signal: abortController.signal })
+          break
+        } catch (error) {
+          const isCanceled = abortController.signal.aborted
+            || error?.name === 'CanceledError'
+            || error?.name === 'AbortError'
+          if (isCanceled || !isTransientProductError(error) || attempt === PRODUCT_FETCH_ATTEMPTS - 1) {
+            throw error
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)))
+          if (abortController.signal.aborted) return
+        }
+      }
+
       const responseData = res?.data
       const newProducts = responseData?.products
       const pagination = responseData?.pagination
@@ -88,6 +99,7 @@ export default function HomePage() {
       if (resetPage) {
         setProducts(newProducts)
         setPage(1)
+        pageRef.current = 1
       } else {
         setProducts((prev) => {
           const existingIds = new Set(prev.map((product) => product._id))
@@ -96,25 +108,42 @@ export default function HomePage() {
       }
       setHasMore(pagination.hasMore)
     } catch (err) {
-      if (err.name !== 'CanceledError' && err.name !== 'AbortError' && requestId === requestIdRef.current && resetPage) {
-        setProducts([])
+      const isCanceled = abortController.signal.aborted
+        || err?.name === 'CanceledError'
+        || err?.name === 'AbortError'
+      if (!isCanceled && requestId === requestIdRef.current) {
+        setProductsError(err?.message || 'Unable to load products. Please try again.')
+        if (resetPage) setProducts([])
       }
     } finally {
       if (requestId === requestIdRef.current) setLoading(false)
     }
-  }, [debouncedSearch, category, sortBy, sortOrder, latitude, longitude, radiusKm])
+  }, [debouncedSearch, category, sortBy, sortOrder])
 
-  // Reset and fetch on filter change
+  // Keep the global feed current without applying buyer-location filters.
   useEffect(() => {
-    if (!locationReady) return
-    fetchProducts(true)
-    return () => abortControllerRef.current?.abort()
-  }, [fetchProducts, locationReady])
+    const initialFetch = window.setTimeout(() => fetchProducts(true), 0)
+    const refreshVisibleFeed = () => {
+      if (document.visibilityState === 'visible' && pageRef.current === 1) fetchProducts(true)
+    }
+    const refreshInterval = window.setInterval(refreshVisibleFeed, 30000)
+    window.addEventListener('focus', refreshVisibleFeed)
+    document.addEventListener('visibilitychange', refreshVisibleFeed)
+
+    return () => {
+      window.clearTimeout(initialFetch)
+      window.clearInterval(refreshInterval)
+      window.removeEventListener('focus', refreshVisibleFeed)
+      document.removeEventListener('visibilitychange', refreshVisibleFeed)
+      abortControllerRef.current?.abort()
+    }
+  }, [fetchProducts])
 
   const loadMore = () => {
     if (!hasMore || loading) return
     const nextPage = page + 1
     setPage(nextPage)
+    pageRef.current = nextPage
     fetchProducts(false, nextPage)
   }
 
@@ -154,14 +183,6 @@ export default function HomePage() {
           </Button>
         </div>
 
-        {/* Location indicator */}
-        {latitude && (
-          <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
-            <MapPin className="h-3 w-3 text-orange-500" />
-            <span>Showing products within {radiusKm} km</span>
-          </div>
-        )}
-
         {/* Filters Panel */}
         {showFilters && (
           <div className="mt-3 space-y-3 pb-2">
@@ -175,19 +196,6 @@ export default function HomePage() {
                   <SelectContent>
                     {SORT_OPTIONS.map((o) => (
                       <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <p className="text-xs font-medium mb-1">Radius</p>
-                <Select value={String(radiusKm)} onValueChange={(v) => setRadiusKm(Number(v))}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[2, 5, 10, 20, 50].map((km) => (
-                      <SelectItem key={km} value={String(km)}>{km} km</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -264,6 +272,8 @@ export default function HomePage() {
           <div className="grid grid-cols-2 gap-3">
             {Array.from({ length: 6 }).map((_, i) => <ProductSkeleton key={i} />)}
           </div>
+        ) : productsError && safeProducts.length === 0 ? (
+          <ErrorState message={productsError} onRetry={() => fetchProducts(true)} />
         ) : safeProducts.length === 0 ? (
           <EmptyState
             title={t('home.no_products')}
@@ -277,8 +287,12 @@ export default function HomePage() {
               {safeProducts.map((p) => <ProductCard key={p._id} product={p} />)}
             </div>
 
-            {/* Load More */}
-            {hasMore && (
+            {productsError ? (
+              <ErrorState
+                message={productsError}
+                onRetry={() => fetchProducts(false, page)}
+              />
+            ) : hasMore && (
               <div className="mt-4 text-center">
                 <Button variant="outline" onClick={loadMore} disabled={loading} size="sm">
                   {loading ? 'Loading...' : 'Load More'}

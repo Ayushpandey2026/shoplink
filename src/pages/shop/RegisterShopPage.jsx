@@ -6,10 +6,12 @@ import { useForm } from 'react-hook-form'
 import { MapPin, Store, CheckCircle2, Navigation } from 'lucide-react'
 import {
   Button, Input, Label, Card, CardContent, CardHeader, CardTitle,
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem, Badge
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem
 } from '@/components/ui'
 import { PageWrapper, LoadingSpinner } from '@/components/shared'
 import { authAPI, shopAPI } from '@/services/api'
+import LocationPicker from '@/components/map/LocationPicker'
+import { getCurrentDeviceLocation, isValidCoordinates } from '@/utils/geolocation'
 import { useAuthStore } from '@/store'
 import toast from 'react-hot-toast'
 
@@ -44,25 +46,51 @@ export default function RegisterShopPage() {
   const [shopType, setShopType] = useState('')
   const [categories, setCategories] = useState([])
   const [location, setLocation] = useState(null)
+  const [locationInputs, setLocationInputs] = useState({ latitude: '', longitude: '' })
   const [locLoading, setLocLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [logo, setLogo] = useState(null)
 
   const { register, handleSubmit, setValue, formState: { errors } } = useForm()
 
-  const captureLocation = () => {
+  const captureLocation = async () => {
+    if (locLoading) return
     setLocLoading(true)
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        setLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude })
-        setLocLoading(false)
-        toast.success('Location captured!')
-      },
-      err => {
-        toast.error('Could not get location. Please allow access.')
-        setLocLoading(false)
-      }
-    )
+    try {
+      const currentLocation = await getCurrentDeviceLocation()
+      setLocation(currentLocation)
+      setLocationInputs({
+        latitude: String(currentLocation.latitude),
+        longitude: String(currentLocation.longitude),
+      })
+      toast.success('Device location captured. Confirm the shop location on the map.')
+    } catch (error) {
+      toast.error(error.message)
+    } finally {
+      setLocLoading(false)
+    }
+  }
+
+  const updateLocationInput = (coordinate, value) => {
+    const nextInputs = { ...locationInputs, [coordinate]: value }
+    setLocationInputs(nextInputs)
+    if (!nextInputs.latitude.trim() || !nextInputs.longitude.trim()) {
+      setLocation(null)
+      return
+    }
+    const nextLocation = {
+      latitude: Number(nextInputs.latitude),
+      longitude: Number(nextInputs.longitude),
+    }
+    setLocation(isValidCoordinates(nextLocation) ? nextLocation : null)
+  }
+
+  const updateSelectedLocation = (nextLocation) => {
+    setLocation(nextLocation)
+    setLocationInputs({
+      latitude: String(nextLocation.latitude),
+      longitude: String(nextLocation.longitude),
+    })
   }
 
   const toggleCategory = (cat) => {
@@ -74,7 +102,7 @@ export default function RegisterShopPage() {
   const onSubmit = async (data) => {
     if (!shopType) return toast.error('Please select shop type')
     if (categories.length === 0) return toast.error('Select at least one category')
-    if (!location) return toast.error('Please capture your shop location')
+    if (!isValidCoordinates(location)) return toast.error('Select a valid physical shop location on the map.')
 
     setSubmitting(true)
     try {
@@ -274,7 +302,7 @@ export default function RegisterShopPage() {
                     <p className="text-sm font-medium">{t('shop.location')}</p>
                     {location ? (
                       <p className="text-xs text-green-600">
-                        {location.latitude.toFixed(4)}°N, {location.longitude.toFixed(4)}°E
+                        {location.latitude.toFixed(4)}°N, {location.longitude.toFixed(4)}°E · Shop location
                       </p>
                     ) : (
                       <p className="text-xs text-muted-foreground">Required for nearby search</p>
@@ -284,14 +312,47 @@ export default function RegisterShopPage() {
                 {location ? (
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="h-5 w-5 text-green-500" />
-                    <Button type="button" variant="ghost" size="sm" onClick={captureLocation}>Re-capture</Button>
+                    <Button type="button" variant="ghost" size="sm" onClick={captureLocation} disabled={locLoading}>
+                      {locLoading ? 'Locating…' : 'Use Current Location'}
+                    </Button>
                   </div>
                 ) : (
                   <Button type="button" onClick={captureLocation} disabled={locLoading} size="sm" className="gap-1.5">
                     {locLoading ? <LoadingSpinner size="sm" /> : <Navigation className="h-4 w-4" />}
-                    {locLoading ? 'Getting...' : 'Capture'}
+                    {locLoading ? 'Locating…' : 'Use Current Location'}
                   </Button>
                 )}
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="shop-latitude">Shop latitude</Label>
+                  <Input
+                    id="shop-latitude"
+                    type="number"
+                    min="-90"
+                    max="90"
+                    step="any"
+                    value={locationInputs.latitude}
+                    onChange={(event) => updateLocationInput('latitude', event.target.value)}
+                    placeholder="Latitude"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="shop-longitude">Shop longitude</Label>
+                  <Input
+                    id="shop-longitude"
+                    type="number"
+                    min="-180"
+                    max="180"
+                    step="any"
+                    value={locationInputs.longitude}
+                    onChange={(event) => updateLocationInput('longitude', event.target.value)}
+                    placeholder="Longitude"
+                  />
+                </div>
+              </div>
+              <div className="mt-4">
+                <LocationPicker location={location} onChange={updateSelectedLocation} label="Physical shop location" />
               </div>
             </CardContent>
           </Card>
