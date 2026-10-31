@@ -12,6 +12,7 @@ import { authAPI } from '@/services/api'
 import { useAuthStore, useUIStore } from '@/store'
 import { initSocket } from '@/lib/socket'
 import toast from 'react-hot-toast'
+import './auth-pages.css'
 
 const loginSchema = z.object({
   email: z.string().email('Enter a valid email address'),
@@ -74,11 +75,11 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-amber-50 dark:from-gray-900 dark:to-gray-800 flex flex-col">
+    <div className="min-h-screen auth-page flex flex-col">
       <div className="flex justify-end p-4"><Button variant="ghost" size="sm" onClick={toggleLang} className="gap-2"><Globe className="h-4 w-4" /> {i18n.language === 'hi' ? 'EN' : 'हिं'}</Button></div>
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
-        <div className="flex flex-col items-center gap-3 mb-8"><div className="h-16 w-16 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-200"><ShoppingBag className="h-9 w-9 text-white" /></div><div className="text-center"><h1 className="text-2xl font-bold text-gray-900 dark:text-white">ShopLink</h1><p className="text-sm text-muted-foreground mt-0.5">{t('app.tagline')}</p></div></div>
-        <Card className="w-full max-w-sm shadow-xl border-0 dark:border"><CardContent className="pt-6 pb-6 px-6 space-y-4">
+        <div className="flex flex-col items-center gap-3 mb-8"><div className="h-16 w-16 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-200"><ShoppingBag className="h-9 w-9 text-white" /></div><div className="text-center"><h1 className="text-2xl font-bold text-foreground">ShopLink</h1><p className="text-sm text-muted-foreground mt-0.5">{t('app.tagline')}</p></div></div>
+        <Card className="auth-card w-full max-w-sm shadow-xl border"><CardContent className="pt-6 pb-6 px-6 space-y-4">
           <div><h2 className="text-lg font-semibold">{t('auth.login') || 'Login'}</h2><p className="text-sm text-muted-foreground mt-1">Access your ShopLink account</p></div>
           {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
           <div className="flex justify-center py-2"><GoogleLogin onSuccess={handleGoogleSuccess} onError={() => setError('Google login failed. Please try again.')} text="signin_with" size="large" width="280" /></div>

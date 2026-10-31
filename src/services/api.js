@@ -170,6 +170,9 @@ export const productAPI = {
 // ── Order APIs ────────────────────────────────────────────────────
 export const orderAPI = {
   createOrder: (data) => api.post('/orders', data),
+  previewDistance: (data) => api.post('/orders/location/distance', data, { suppressErrorToast: true }),
+  searchLocation: (data) => api.post('/orders/location/search', data, { suppressErrorToast: true }),
+  reverseGeocode: (data) => api.post('/orders/location/reverse', data, { suppressErrorToast: true }),
   verifyPayment: (data) => api.post('/orders/verify-payment', data),
   markPaymentFailed: (id) => api.post(`/orders/${id}/payment-failed`),
   getBuyerExpenses: () => api.get('/orders/expenses'),

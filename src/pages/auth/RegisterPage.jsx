@@ -12,6 +12,7 @@ import { authAPI } from '@/services/api'
 import { useAuthStore, useUIStore } from '@/store'
 import { initSocket } from '@/lib/socket'
 import toast from 'react-hot-toast'
+import './auth-pages.css'
 
 const registerSchema = z.object({
   name: z.string().trim().min(2, 'Name must be at least 2 characters'),
@@ -40,11 +41,15 @@ export default function RegisterPage() {
     navigate('/')
   }
 
-  const handleRegister = async ({ confirmPassword, ...data }) => {
+  const handleRegister = async (data) => {
     setLoading(true)
     setError('')
     try {
-      const res = await authAPI.register(data)
+      const res = await authAPI.register({
+        name: data.name,
+        email: data.email,
+        password: data.password,
+      })
       applyAuth(res.data)
       toast.success(res.message || 'Registration successful!')
     } catch (err) {
@@ -78,11 +83,11 @@ export default function RegisterPage() {
   const fieldError = (field) => errors[field] && <p className="text-xs text-destructive">{errors[field].message}</p>
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-amber-50 dark:from-gray-900 dark:to-gray-800 flex flex-col">
+    <div className="min-h-screen auth-page flex flex-col">
       <div className="flex justify-between items-center p-4"><Button variant="ghost" size="icon-sm" onClick={() => navigate('/auth/login')}><ArrowLeft className="h-4 w-4" /></Button><Button variant="ghost" size="sm" onClick={toggleLang} className="gap-2"><Globe className="h-4 w-4" /> {i18n.language === 'hi' ? 'EN' : 'हिं'}</Button></div>
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-8">
-        <div className="flex flex-col items-center gap-3 mb-8"><div className="h-16 w-16 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-200"><ShoppingBag className="h-9 w-9 text-white" /></div><div className="text-center"><h1 className="text-2xl font-bold text-gray-900 dark:text-white">ShopLink</h1><p className="text-sm text-muted-foreground mt-0.5">{t('app.tagline')}</p></div></div>
-        <Card className="w-full max-w-sm shadow-xl border-0 dark:border"><CardContent className="pt-6 pb-6 px-6 space-y-4">
+        <div className="flex flex-col items-center gap-3 mb-8"><div className="h-16 w-16 bg-orange-500 rounded-2xl flex items-center justify-center shadow-lg shadow-orange-200"><ShoppingBag className="h-9 w-9 text-white" /></div><div className="text-center"><h1 className="text-2xl font-bold text-foreground">ShopLink</h1><p className="text-sm text-muted-foreground mt-0.5">{t('app.tagline')}</p></div></div>
+        <Card className="auth-card w-full max-w-sm shadow-xl border"><CardContent className="pt-6 pb-6 px-6 space-y-4">
           <div><h2 className="text-lg font-semibold">Create Account</h2><p className="text-sm text-muted-foreground mt-1">Join ShopLink with your email</p></div>
           {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
           <form onSubmit={handleSubmit(handleRegister)} className="space-y-4">

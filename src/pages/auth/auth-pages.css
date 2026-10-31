@@ -1,0 +1,84 @@
+.auth-page {
+  background: #fff7ed;
+  color: #111827;
+}
+
+.auth-page .auth-card {
+  background: #ffffff;
+  border-color: #e5e7eb;
+  color: #111827;
+}
+
+.auth-page .text-muted-foreground {
+  color: #4b5563;
+}
+
+.auth-page input {
+  background: #ffffff;
+  border-color: #9ca3af;
+  color: #111827;
+}
+
+.auth-page input::placeholder {
+  color: #6b7280;
+  opacity: 1;
+}
+
+.auth-page input:focus-visible {
+  border-color: #f97316;
+  outline: 2px solid #f97316;
+  outline-offset: 2px;
+}
+
+.auth-page .text-destructive,
+.auth-page [role="alert"] {
+  color: #b91c1c;
+}
+
+.auth-page [role="alert"] {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.dark .auth-page {
+  background: #111827;
+  color: #f9fafb;
+}
+
+.dark .auth-page .auth-card {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #f9fafb;
+}
+
+.dark .auth-page .text-muted-foreground {
+  color: #d1d5db;
+}
+
+.dark .auth-page input {
+  background: #111827;
+  border-color: #6b7280;
+  color: #f9fafb;
+}
+
+.dark .auth-page input::placeholder {
+  color: #9ca3af;
+}
+
+.dark .auth-page .text-destructive {
+  color: #fca5a5;
+}
+
+.dark .auth-page [role="alert"] {
+  background: #450a0a;
+  border-color: #b91c1c;
+  color: #fecaca;
+}
+
+.dark .auth-page .bg-gray-300 {
+  background-color: #6b7280;
+}
+
+.dark .auth-page .border-t {
+  border-color: #4b5563;
+}

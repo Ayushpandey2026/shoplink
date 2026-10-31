@@ -1,6 +1,6 @@
 
 // src/pages/product/ProductDetailPage.jsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -41,40 +41,109 @@ export default function ProductDetailPage() {
     addressLine: '', city: '', state: '', pincode: ''
   })
   const [buyerLocation, setBuyerLocation] = useState(null)
-  const [buyerLocationInputs, setBuyerLocationInputs] = useState({ latitude: '', longitude: '' })
+  const [buyerLocationProductId, setBuyerLocationProductId] = useState(null)
+  const [buyerLocationDescription, setBuyerLocationDescription] = useState('')
+  const [locationQuery, setLocationQuery] = useState('')
+  const [locationCandidates, setLocationCandidates] = useState([])
+  const [locationSearchLoading, setLocationSearchLoading] = useState(false)
+  const [distancePreview, setDistancePreview] = useState(null)
+  const [distanceLoading, setDistanceLoading] = useState(false)
+  const [distanceError, setDistanceError] = useState('')
   const [buyerLocationLoading, setBuyerLocationLoading] = useState(false)
   const [buyerLocationError, setBuyerLocationError] = useState('')
+  const orderSubmissionInProgress = useRef(false)
+  const locationSearchRequest = useRef(0)
 
-  const selectBuyerLocation = (location) => {
+  const selectBuyerLocation = (location, description = 'Map-selected location') => {
     setBuyerLocation(location)
-    setBuyerLocationInputs({
-      latitude: String(location.latitude),
-      longitude: String(location.longitude),
-    })
+    setBuyerLocationProductId(product?._id || null)
+    setBuyerLocationDescription(description)
+    setBuyerLocationError('')
+    setDistanceError('')
+    setDistancePreview(null)
+    setDistanceLoading(false)
+  }
+
+  const resetPurchaseLocation = () => {
+    locationSearchRequest.current += 1
+    setBuyerLocation(null)
+    setBuyerLocationProductId(null)
+    setBuyerLocationDescription('')
+    setLocationQuery('')
+    setLocationCandidates([])
+    setDistancePreview(null)
+    setDistanceError('')
+    setDistanceLoading(false)
     setBuyerLocationError('')
   }
 
-  const updateBuyerLocationInput = (coordinate, value) => {
-    const nextInputs = { ...buyerLocationInputs, [coordinate]: value }
-    setBuyerLocationInputs(nextInputs)
-    if (!nextInputs.latitude.trim() || !nextInputs.longitude.trim()) {
-      setBuyerLocation(null)
-      setBuyerLocationError('')
+  const handleOpenOrderDialog = () => {
+    resetPurchaseLocation()
+    setShowOrderDialog(true)
+  }
+
+  const handleSearchLocation = async (event) => {
+    event.preventDefault()
+    const query = locationQuery.trim()
+    if (query.length < 3) {
+      setBuyerLocationError('Enter at least 3 characters of an address, locality, city, or postal code.')
       return
     }
-    const location = {
-      latitude: Number(nextInputs.latitude),
-      longitude: Number(nextInputs.longitude),
+    const requestId = ++locationSearchRequest.current
+    setLocationSearchLoading(true)
+    setLocationCandidates([])
+    setBuyerLocation(null)
+    setBuyerLocationProductId(null)
+    setBuyerLocationDescription('')
+    setDistancePreview(null)
+    setDistanceLoading(false)
+    setBuyerLocationError('')
+    try {
+      const result = await orderAPI.searchLocation({ query })
+      if (requestId === locationSearchRequest.current) {
+        setLocationCandidates(result.data.candidates)
+      }
+    } catch (error) {
+      if (requestId === locationSearchRequest.current) {
+        setBuyerLocationError(error?.message || 'Address search is unavailable. Try the map or current location.')
+      }
+    } finally {
+      if (requestId === locationSearchRequest.current) setLocationSearchLoading(false)
     }
-    setBuyerLocation(isValidCoordinates(location) ? location : null)
+  }
+
+  const handleSelectMapLocation = (location) => {
+    locationSearchRequest.current += 1
+    setLocationSearchLoading(false)
+    setLocationQuery('')
+    setLocationCandidates([])
+    selectBuyerLocation(location)
+  }
+
+  const handleSelectAddress = (candidate) => {
+    locationSearchRequest.current += 1
+    setLocationSearchLoading(false)
+    selectBuyerLocation({
+      latitude: candidate.latitude,
+      longitude: candidate.longitude,
+    }, candidate.address)
+    setLocationCandidates([])
   }
 
   const handleLocateBuyer = async () => {
     if (buyerLocationLoading) return
     setBuyerLocationLoading(true)
     setBuyerLocationError('')
+    setLocationCandidates([])
     try {
-      selectBuyerLocation(await getCurrentDeviceLocation())
+      const location = await getCurrentDeviceLocation()
+      selectBuyerLocation(location, 'Current device location')
+      try {
+        const result = await orderAPI.reverseGeocode(location)
+        if (result.data.address) setBuyerLocationDescription(result.data.address)
+      } catch {
+        setBuyerLocationDescription('Current device location')
+      }
     } catch (error) {
       setBuyerLocationError(error.message)
     } finally {
@@ -122,12 +191,53 @@ export default function ProductDetailPage() {
     }
   }
 
+  useEffect(() => {
+    if (!showOrderDialog || !product?.shop?._id || buyerLocationProductId !== product?._id || !isValidCoordinates(buyerLocation)) {
+      return undefined
+    }
+
+    let active = true
+    const timer = setTimeout(async () => {
+      setDistanceLoading(true)
+      setDistanceError('')
+      try {
+        const result = await orderAPI.previewDistance({
+          shopId: product.shop._id,
+          buyerLocation,
+        })
+        if (active) setDistancePreview(result.data)
+      } catch (error) {
+        if (active) {
+          setDistancePreview(null)
+          setDistanceError(error?.message || 'Unable to check distance. Try selecting your location again.')
+        }
+      } finally {
+        if (active) setDistanceLoading(false)
+      }
+    }, 350)
+
+    return () => {
+      active = false
+      clearTimeout(timer)
+    }
+  }, [buyerLocation, buyerLocationProductId, product?._id, product?.shop?._id, showOrderDialog])
+
   const handlePlaceOrder = async () => {
     if (!isAuthenticated) return navigate('/auth/login')
-    if (!isValidCoordinates(buyerLocation)) {
-      setBuyerLocationError('Select your current location or enter your coordinates to continue.')
+    if (orderSubmissionInProgress.current) return
+    if (buyerLocationProductId !== product._id || !isValidCoordinates(buyerLocation)) {
+      setBuyerLocationError('Capture your current location or search and confirm an address to continue.')
       return
     }
+    if (distanceLoading || !distancePreview) {
+      setDistanceError('Wait for the shop distance check to finish before continuing.')
+      return
+    }
+    if (!distancePreview.eligible) {
+      setDistanceError('This shop is outside the 50 km purchase area.')
+      return
+    }
+    orderSubmissionInProgress.current = true
     setOrderLoading(true)
     try {
       const orderData = {
@@ -146,6 +256,7 @@ export default function ProductDetailPage() {
       script.src = 'https://checkout.razorpay.com/v1/checkout.js'
       script.onerror = async () => {
         await orderAPI.cancelOrder(order._id, { reason: 'Razorpay checkout could not be loaded' }).catch(() => {})
+        orderSubmissionInProgress.current = false
         setOrderLoading(false)
         toast.error('Unable to load Razorpay Checkout. Your stock reservation has been released.')
       }
@@ -170,10 +281,12 @@ export default function ProductDetailPage() {
                 razorpaySignature: response.razorpay_signature
               })
               toast.success('Test payment verified and order confirmed.')
+              orderSubmissionInProgress.current = false
               setOrderLoading(false)
               setShowOrderDialog(false)
               navigate('/orders')
             } catch {
+              orderSubmissionInProgress.current = false
               setOrderLoading(false)
               toast.error('Payment verification is pending. Check your order status shortly.')
             }
@@ -183,6 +296,7 @@ export default function ProductDetailPage() {
               if (!paymentCallbackReceived) {
                 await orderAPI.cancelOrder(order._id, { reason: 'Checkout closed before payment' }).catch(() => {})
               }
+              orderSubmissionInProgress.current = false
               setOrderLoading(false)
             }
           }
@@ -194,6 +308,7 @@ export default function ProductDetailPage() {
           } catch {
             toast.error('The checkout will expire and release reserved stock automatically.')
           }
+          orderSubmissionInProgress.current = false
           setOrderLoading(false)
           toast.error('Payment failed. No expense was recorded and reserved stock has been released.')
         })
@@ -201,6 +316,7 @@ export default function ProductDetailPage() {
       }
       document.body.appendChild(script)
     } catch (err) {
+      orderSubmissionInProgress.current = false
       toast.error(err?.message || 'Failed to place order')
       setOrderLoading(false)
     }
@@ -362,7 +478,7 @@ export default function ProductDetailPage() {
                   size="lg"
                   className="flex-1 gap-2"
                   disabled={!canOrder}
-                  onClick={() => canOrder && setShowOrderDialog(true)}
+                  onClick={() => canOrder && handleOpenOrderDialog()}
                 >
                   <ShoppingBag className="h-5 w-5" />
                   {!canOrder ? t('product.sold_out') : t('order.buy_now')}
@@ -488,7 +604,7 @@ export default function ProductDetailPage() {
           <Button
             className="flex-1 gap-2"
             disabled={!canOrder}
-            onClick={() => canOrder && setShowOrderDialog(true)}
+            onClick={() => canOrder && handleOpenOrderDialog()}
           >
             <ShoppingBag className="h-4 w-4" />
             {!canOrder ? t('product.sold_out') : t('order.buy_now')}
@@ -498,60 +614,113 @@ export default function ProductDetailPage() {
 
       {/* Order Dialog */}
       <Dialog open={showOrderDialog} onOpenChange={setShowOrderDialog}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Place Order</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <section className="space-y-2 rounded-lg border p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <Label>Your location for distance check</Label>
+            <section className="space-y-3 rounded-lg border p-3">
+              <div>
+                <Label>Choose your location</Label>
+                <p className="text-xs text-muted-foreground">
+                  Your location is used to check whether this shop is within 50 km.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full min-h-11"
+                onClick={handleLocateBuyer}
+                disabled={buyerLocationLoading || locationSearchLoading}
+              >
+                <Navigation className="h-4 w-4" />
+                {buyerLocationLoading ? 'Getting current location…' : 'Capture Current Location'}
+              </Button>
+              <form onSubmit={handleSearchLocation} className="space-y-2">
+                <Label htmlFor="buyer-location-search">Or enter an address, locality, city, or postal code</Label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input
+                    id="buyer-location-search"
+                    autoComplete="street-address"
+                    placeholder="e.g. 221B Baker Street, Varanasi"
+                    value={locationQuery}
+                    disabled={locationSearchLoading || buyerLocationLoading}
+                    onChange={(event) => {
+                      setLocationQuery(event.target.value)
+                      locationSearchRequest.current += 1
+                      setLocationCandidates([])
+                      setBuyerLocation(null)
+                      setBuyerLocationProductId(null)
+                      setBuyerLocationDescription('')
+                      setBuyerLocationError('')
+                      setDistancePreview(null)
+                      setDistanceError('')
+                      setDistanceLoading(false)
+                    }}
+                  />
+                  <Button type="submit" variant="outline" className="min-h-11 shrink-0" disabled={locationSearchLoading || buyerLocationLoading}>
+                    {locationSearchLoading ? 'Searching…' : 'Find address'}
+                  </Button>
+                </div>
+              </form>
+              {locationCandidates.length > 0 && (
+                <fieldset className="space-y-2" aria-label="Confirm a matching location">
+                  <legend className="text-sm font-medium">Choose the matching location to confirm it</legend>
+                  {locationCandidates.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      className="w-full rounded-md border p-3 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                      onClick={() => handleSelectAddress(candidate)}
+                    >
+                      {candidate.address}
+                    </button>
+                  ))}
                   <p className="text-xs text-muted-foreground">
-                    Used only to check the 50 km purchase limit.
+                    Address search by OpenStreetMap contributors (Nominatim).
+                  </p>
+                </fieldset>
+              )}
+              {buyerLocation && (
+                <div className="space-y-1 rounded-md bg-muted/50 p-3" aria-live="polite">
+                  <p className="text-sm font-medium">Location confirmed</p>
+                  <p className="text-xs text-muted-foreground">{buyerLocationDescription}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {buyerLocation.latitude.toFixed(5)}, {buyerLocation.longitude.toFixed(5)}
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleLocateBuyer}
-                  disabled={buyerLocationLoading}
+              )}
+              <div className="space-y-2">
+                {!buyerLocation && (
+                  <p className="text-xs text-muted-foreground">
+                    If address search is unavailable, zoom in on the map and select your exact location.
+                  </p>
+                )}
+                <LocationPicker
+                  location={buyerLocation}
+                  onChange={handleSelectMapLocation}
+                  label={buyerLocation ? 'Adjust the confirmed location on the map' : 'Select your location on the map'}
+                  initialCenter={{ latitude: 22.5, longitude: 79 }}
+                  initialZoom={5}
+                />
+              </div>
+              {distanceLoading && (
+                <p className="text-sm text-muted-foreground" role="status">Checking distance to the shop…</p>
+              )}
+              {distancePreview && !distanceLoading && (
+                <p
+                  className={`text-sm font-medium ${distancePreview.eligible ? 'text-green-700' : 'text-destructive'}`}
+                  role="status"
                 >
-                  <Navigation className="mr-1 h-4 w-4" />
-                  {buyerLocationLoading ? 'Locating…' : 'Use Current Location'}
-                </Button>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  aria-label="Buyer latitude"
-                  type="number"
-                  min="-90"
-                  max="90"
-                  step="any"
-                  placeholder="Latitude"
-                  value={buyerLocationInputs.latitude}
-                  onChange={(event) => updateBuyerLocationInput('latitude', event.target.value)}
-                />
-                <Input
-                  aria-label="Buyer longitude"
-                  type="number"
-                  min="-180"
-                  max="180"
-                  step="any"
-                  placeholder="Longitude"
-                  value={buyerLocationInputs.longitude}
-                  onChange={(event) => updateBuyerLocationInput('longitude', event.target.value)}
-                />
-              </div>
-              {buyerLocation && (
-                <p className="text-xs text-green-700">
-                  Selected: {buyerLocation.latitude.toFixed(5)}, {buyerLocation.longitude.toFixed(5)}
+                  {distancePreview.distanceKm.toFixed(2)} km from the shop. {distancePreview.message}
                 </p>
               )}
-              <LocationPicker location={buyerLocation} onChange={selectBuyerLocation} label="Buyer location" />
-              {buyerLocationError && <p role="alert" className="text-xs text-destructive">{buyerLocationError}</p>}
+              {distanceError && <p role="alert" className="text-sm text-destructive">{distanceError}</p>}
+              {buyerLocationError && <p role="alert" className="text-sm text-destructive">{buyerLocationError}</p>}
+              <p className="text-xs text-muted-foreground">
+                Map data © OpenStreetMap contributors. Selecting a map point confirms that location.
+              </p>
             </section>
 
             {/* Quantity */}
@@ -709,7 +878,7 @@ export default function ProductDetailPage() {
             <Button variant="outline" onClick={() => setShowOrderDialog(false)} className="flex-1">
               Cancel
             </Button>
-            <Button onClick={handlePlaceOrder} disabled={orderLoading || buyerLocationLoading || !isValidCoordinates(buyerLocation) || !hasValidMinimumOrderQuantity} className="flex-1">
+            <Button onClick={handlePlaceOrder} disabled={orderLoading || buyerLocationLoading || locationSearchLoading || distanceLoading || buyerLocationProductId !== product._id || !isValidCoordinates(buyerLocation) || !distancePreview?.eligible || !hasValidMinimumOrderQuantity} className="flex-1">
               {orderLoading ? 'Processing...' : `Pay ₹${product.sellingPrice * quantity + (deliveryType === 'self_pickup' ? 0 : deliveryType === 'urgent' ? (product.shop?.settings?.urgentDeliveryCharge || 50) : (product.shop?.settings?.normalDeliveryCharge || 20))}`}
             </Button>
           </DialogFooter>
