@@ -34,37 +34,58 @@ const SORT_OPTIONS = [
   { value: 'expiryDate', label: 'Expiring Soon' },
 ]
 
+const getSavedFeed = () => {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('shoplink-home-feed') || 'null')
+    return saved && Date.now() - saved.savedAt < 5 * 60 * 1000 ? saved : null
+  } catch {
+    return null
+  }
+}
+
 export default function HomePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [products, setProducts] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [savedFeed] = useState(getSavedFeed)
+  const [products, setProducts] = useState(() => savedFeed?.products || [])
+  const [loading, setLoading] = useState(() => !savedFeed)
+  const [loadingMore, setLoadingMore] = useState(false)
   const [productsError, setProductsError] = useState('')
-  const [page, setPage] = useState(1)
-  const [hasMore, setHasMore] = useState(true)
-  const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('')
-  const [sortBy, setSortBy] = useState('createdAt')
+  const [page, setPage] = useState(() => savedFeed?.page || 1)
+  const [cursor, setCursor] = useState(() => savedFeed?.cursor || null)
+  const [hasMore, setHasMore] = useState(() => savedFeed?.hasMore ?? true)
+  const [search, setSearch] = useState(() => savedFeed?.search || '')
+  const [category, setCategory] = useState(() => savedFeed?.category || '')
+  const [sortBy, setSortBy] = useState(() => savedFeed?.sortBy || 'createdAt')
   const sortOrder = 'desc'
   const [showFilters, setShowFilters] = useState(false)
   const requestIdRef = useRef(0)
   const abortControllerRef = useRef(null)
-  const pageRef = useRef(1)
+  const inFlightRef = useRef(null)
+  const sentinelRef = useRef(null)
+  const pageRef = useRef(savedFeed?.page || 1)
+  const cursorRef = useRef(savedFeed?.cursor || null)
 
   const debouncedSearch = useDebounce(search, 400)
-  const fetchProducts = useCallback(async (resetPage = false, pageToFetch = 1) => {
+  const fetchProducts = useCallback(async (resetPage = false) => {
+    if (!resetPage && inFlightRef.current) return
     const requestId = ++requestIdRef.current
-    abortControllerRef.current?.abort()
+    if (resetPage) abortControllerRef.current?.abort()
     const abortController = new AbortController()
     abortControllerRef.current = abortController
-    setLoading(true)
+    inFlightRef.current = requestId
+    if (resetPage) setLoading(true)
+    else setLoadingMore(true)
     setProductsError('')
     try {
+      const cursorMode = sortBy !== 'expiryDate'
       const params = {
-        page: pageToFetch,
-        limit: 20,
+        limit: 12,
         sortBy,
         sortOrder,
+        ...(cursorMode
+          ? { pagination: 'cursor', ...(!resetPage && cursorRef.current && { cursor: cursorRef.current }) }
+          : { page: resetPage ? 1 : pageRef.current + 1 }),
         ...(debouncedSearch && { search: debouncedSearch }),
         ...(category && { category }),
       }
@@ -90,7 +111,7 @@ export default function HomePage() {
       const newProducts = responseData?.products
       const pagination = responseData?.pagination
 
-      if (!Array.isArray(newProducts) || !pagination) {
+      if (!Array.isArray(newProducts) || !pagination || (cursorMode && pagination.hasMore && !pagination.nextCursor)) {
         throw new Error('Invalid product list response')
       }
 
@@ -100,12 +121,25 @@ export default function HomePage() {
         setProducts(newProducts)
         setPage(1)
         pageRef.current = 1
+        cursorRef.current = null
       } else {
         setProducts((prev) => {
           const existingIds = new Set(prev.map((product) => product._id))
-          return [...prev, ...newProducts.filter((product) => !existingIds.has(product._id))]
+          const uniqueProducts = newProducts.filter((product) => {
+            if (existingIds.has(product._id)) return false
+            existingIds.add(product._id)
+            return true
+          })
+          return [...prev, ...uniqueProducts]
+        })
+        setPage((currentPage) => {
+          pageRef.current = currentPage + 1
+          return currentPage + 1
         })
       }
+      const nextCursor = cursorMode ? pagination.nextCursor : null
+      cursorRef.current = nextCursor
+      setCursor(nextCursor)
       setHasMore(pagination.hasMore)
     } catch (err) {
       const isCanceled = abortController.signal.aborted
@@ -113,16 +147,59 @@ export default function HomePage() {
         || err?.name === 'AbortError'
       if (!isCanceled && requestId === requestIdRef.current) {
         setProductsError(err?.message || 'Unable to load products. Please try again.')
-        if (resetPage) setProducts([])
+        if (resetPage) {
+          setProducts([])
+          setHasMore(false)
+        }
       }
     } finally {
-      if (requestId === requestIdRef.current) setLoading(false)
+      if (inFlightRef.current === requestId) inFlightRef.current = null
+      if (requestId === requestIdRef.current) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }, [debouncedSearch, category, sortBy, sortOrder])
 
-  // Keep the global feed current without applying buyer-location filters.
   useEffect(() => {
+    if (!savedFeed) return undefined
+
+    const savedScrollY = Number(sessionStorage.getItem('shoplink-home-feed-scroll') || savedFeed.scrollY || 0)
+    window.requestAnimationFrame(() => window.scrollTo(0, savedScrollY))
+    sessionStorage.removeItem('shoplink-home-feed-scroll')
+    return () => abortControllerRef.current?.abort()
+  }, [savedFeed])
+
+  useEffect(() => {
+    const snapshot = {
+      savedAt: Date.now(),
+      scrollY: window.scrollY,
+      products,
+      page,
+      cursor,
+      hasMore,
+      search,
+      category,
+      sortBy,
+    }
+    try {
+      sessionStorage.setItem('shoplink-home-feed', JSON.stringify(snapshot))
+    } catch {
+      // Storage can be unavailable or full; the in-memory feed still works.
+    }
+  }, [products, page, cursor, hasMore, search, category, sortBy])
+
+  useEffect(() => {
+    if (savedFeed && (debouncedSearch === savedFeed.search)
+      && category === savedFeed.category && sortBy === savedFeed.sortBy) return
     const initialFetch = window.setTimeout(() => fetchProducts(true), 0)
+    return () => {
+      window.clearTimeout(initialFetch)
+      abortControllerRef.current?.abort()
+    }
+  }, [debouncedSearch, category, sortBy, fetchProducts, savedFeed])
+
+  useEffect(() => {
     const refreshVisibleFeed = () => {
       if (document.visibilityState === 'visible' && pageRef.current === 1) fetchProducts(true)
     }
@@ -131,21 +208,23 @@ export default function HomePage() {
     document.addEventListener('visibilitychange', refreshVisibleFeed)
 
     return () => {
-      window.clearTimeout(initialFetch)
+      abortControllerRef.current?.abort()
       window.clearInterval(refreshInterval)
       window.removeEventListener('focus', refreshVisibleFeed)
       document.removeEventListener('visibilitychange', refreshVisibleFeed)
-      abortControllerRef.current?.abort()
     }
   }, [fetchProducts])
 
-  const loadMore = () => {
-    if (!hasMore || loading) return
-    const nextPage = page + 1
-    setPage(nextPage)
-    pageRef.current = nextPage
-    fetchProducts(false, nextPage)
-  }
+  useEffect(() => {
+    if (!hasMore || loading || loadingMore || productsError || !sentinelRef.current) return undefined
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) fetchProducts(false)
+    }, { rootMargin: '400px 0px' })
+    observer.observe(sentinelRef.current)
+    return () => observer.disconnect()
+  }, [fetchProducts, hasMore, loading, loadingMore, productsError])
+
+  const loadMore = () => fetchProducts(false)
 
   const safeProducts = Array.isArray(products)
     ? products.filter((product) => product && typeof product === 'object')
@@ -290,14 +369,24 @@ export default function HomePage() {
             {productsError ? (
               <ErrorState
                 message={productsError}
-                onRetry={() => fetchProducts(false, page)}
+                onRetry={() => fetchProducts(false)}
               />
-            ) : hasMore && (
+            ) : hasMore ? (
               <div className="mt-4 text-center">
-                <Button variant="outline" onClick={loadMore} disabled={loading} size="sm">
-                  {loading ? 'Loading...' : 'Load More'}
+                <div ref={sentinelRef} className="h-px" aria-hidden="true" />
+                {loadingMore && (
+                  <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    {Array.from({ length: 4 }).map((_, index) => <ProductSkeleton key={index} />)}
+                  </div>
+                )}
+                <Button variant="outline" onClick={loadMore} disabled={loadingMore} size="sm" className="mt-3">
+                  {loadingMore ? 'Loading...' : 'Load More'}
                 </Button>
               </div>
+            ) : (
+              <p className="mt-6 text-center text-sm text-muted-foreground" role="status">
+                You&apos;ve reached the end of the listings.
+              </p>
             )}
           </>
         )}

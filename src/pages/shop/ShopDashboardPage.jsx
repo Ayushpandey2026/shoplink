@@ -1,10 +1,10 @@
 // src/pages/shop/ShopDashboardPage.jsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
   Store, Package, ShoppingBag, TrendingUp, Wallet, Star,
-  Plus, Settings, ToggleLeft, ToggleRight, CheckCircle2,
+  Plus, Settings, CheckCircle2,
   Clock, AlertCircle, ChevronRight, Edit2, MapPin
 } from 'lucide-react'
 import {
@@ -40,15 +40,18 @@ export default function ShopDashboardPage() {
   const [toggling, setToggling] = useState(false)
   const [pendingOrders, setPendingOrders] = useState([])
   const [expiringProducts, setExpiringProducts] = useState([])
+  const [inventoryRecovery, setInventoryRecovery] = useState(null)
 
-  useEffect(() => {
-    fetchData()
-  }, [])
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const shopRes = await shopAPI.getMyShop()
       setShop(shopRes.data.shop)
+      try {
+        const analyticsRes = await shopAPI.getAnalytics()
+        setInventoryRecovery(analyticsRes.data?.inventoryRecovery || null)
+      } catch {
+        setInventoryRecovery(null)
+      }
 
       // Fetch pending orders
       try {
@@ -78,7 +81,11 @@ export default function ShopDashboardPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    Promise.resolve().then(fetchData)
+  }, [fetchData])
 
   const handleToggleStatus = async () => {
     setToggling(true)
@@ -169,7 +176,7 @@ export default function ShopDashboardPage() {
       </Card>
 
       {/* Quick Stats Grid */}
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className="grid grid-cols-2 gap-3 mb-4 sm:grid-cols-3">
         <QuickStatCard
           icon={ShoppingBag}
           label="Total Orders"
@@ -177,14 +184,6 @@ export default function ShopDashboardPage() {
           onClick={() => navigate('/orders?tab=seller')}
           color="text-blue-600"
           bg="bg-blue-50 dark:bg-blue-950/20"
-        />
-        <QuickStatCard
-          icon={TrendingUp}
-          label="Revenue"
-          value={`₹${(shop.analytics?.totalRevenue || 0).toLocaleString('en-IN')}`}
-          onClick={() => navigate('/shop/analytics')}
-          color="text-green-600"
-          bg="bg-green-50 dark:bg-green-950/20"
         />
         <QuickStatCard
           icon={Star}
@@ -196,13 +195,54 @@ export default function ShopDashboardPage() {
         />
         <QuickStatCard
           icon={TrendingUp}
-          label="Loss Saved"
-          value={`₹${(shop.analytics?.estimatedLossSaved || 0).toLocaleString('en-IN')}`}
+          label="Seller proceeds released"
+          value={inventoryRecovery
+            ? `₹${(inventoryRecovery.totalCashRecoveredPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+            : '—'}
+          onClick={() => navigate('/shop/analytics')}
+          color="text-green-600"
+          bg="bg-green-50 dark:bg-green-950/20"
+        />
+        <QuickStatCard
+          icon={TrendingUp}
+          label="Potential loss avoided"
+          value={inventoryRecovery
+            ? `₹${(inventoryRecovery.totalLossAvoidedPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+            : '—'}
+          onClick={() => navigate('/shop/analytics')}
+        />
+        <QuickStatCard
+          icon={Package}
+          label="Remaining potential loss"
+          value={inventoryRecovery
+            ? `₹${(inventoryRecovery.totalRemainingPotentialLossPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+            : '—'}
+          onClick={() => navigate('/shop/analytics')}
+          color="text-red-600"
+          bg="bg-red-50 dark:bg-red-950/20"
+        />
+        <QuickStatCard
+          icon={Package}
+          label="Units recovered"
+          value={inventoryRecovery?.unitsRecovered ?? '—'}
+          onClick={() => navigate('/shop/analytics')}
+          color="text-blue-600"
+          bg="bg-blue-50 dark:bg-blue-950/20"
+        />
+        <QuickStatCard
+          icon={CheckCircle2}
+          label="Inventory cleared"
+          value={inventoryRecovery
+            ? `${inventoryRecovery.inventoryCleared.completedListings}/${inventoryRecovery.inventoryCleared.totalListings}`
+            : '—'}
           onClick={() => navigate('/shop/analytics')}
           color="text-orange-500"
           bg="bg-orange-50 dark:bg-orange-950/20"
         />
       </div>
+      <p className="mb-4 text-xs text-muted-foreground">
+        Proceeds are counted only after release to your ShopLink wallet. Razorpay is currently in test mode; this is not a bank payout.
+      </p>
 
       {/* Pending Orders Alert */}
       {pendingOrders.length > 0 && (

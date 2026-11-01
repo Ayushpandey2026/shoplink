@@ -6,8 +6,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
-  Camera, X, Plus, Sparkles, Package, ChevronDown,
-  AlertCircle, CheckCircle2, Barcode, Image as ImageIcon
+  Camera, X, Plus, AlertCircle, CheckCircle2, Barcode
 } from 'lucide-react'
 import {
   Button, Input, Label, Textarea, Select, SelectTrigger,
@@ -26,6 +25,14 @@ const schema = z.object({
   category: z.string().min(1, 'Category required'),
   mrp: z.coerce.number().positive('MRP must be positive'),
   sellingPrice: z.coerce.number().positive('Selling price required'),
+  purchaseCostPerUnit: z.preprocess(
+    (value) => value === '' || value === undefined ? undefined : value,
+    z.coerce.number().min(0, 'Purchase cost must be zero or more')
+  ),
+  unsoldRecoveryValuePerUnit: z.preprocess(
+    (value) => value === '' || value === undefined ? undefined : value,
+    z.coerce.number().min(0, 'Unsold recovery value must be zero or more')
+  ),
   quantity: z.coerce.number().int().positive('Quantity required'),
   unit: z.string().default('piece'),
   minimumOrderQuantity: z.coerce.number().int().min(1).default(1),
@@ -62,8 +69,6 @@ export default function AddProductPage() {
   const [deliveryOptions, setDeliveryOptions] = useState({
     selfPickup: true, normalDelivery: false, urgentDelivery: false,
   })
-  const [aiSuggestions, setAiSuggestions] = useState(null)
-
   const fileInputRef = useRef(null)
 
   const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm({
@@ -241,6 +246,25 @@ export default function AddProductPage() {
                     </SelectContent>
                   </Select>
                   {errors.category && <p className="text-xs text-destructive">{errors.category.message}</p>}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium">Inventory recovery estimates</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  These listing-time values are saved as a historical snapshot and are not changed when you edit prices later.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Original purchase cost per unit (₹) *</Label>
+                  <Input type="number" min="0" step="0.01" placeholder="0.00" {...register('purchaseCostPerUnit')} />
+                  {errors.purchaseCostPerUnit && <p className="text-xs text-destructive">{errors.purchaseCostPerUnit.message}</p>}
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Expected unsold recovery per unit (₹) *</Label>
+                  <Input type="number" min="0" step="0.01" placeholder="0.00" {...register('unsoldRecoveryValuePerUnit')} />
+                  {errors.unsoldRecoveryValuePerUnit && <p className="text-xs text-destructive">{errors.unsoldRecoveryValuePerUnit.message}</p>}
                 </div>
               </div>
 

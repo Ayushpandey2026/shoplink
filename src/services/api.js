@@ -118,6 +118,9 @@ api.interceptors.response.use(
 export const authAPI = {
   register: (data) => api.post('/auth/register', data),
   login: (data) => api.post('/auth/login', data),
+  adminLogin: (data) => api.post('/auth/admin/login', data),
+  requestPasswordReset: (data) => api.post('/auth/password-reset/request', data),
+  completePasswordReset: (data) => api.post('/auth/password-reset/complete', data),
   sendOTP: (data) => api.post('/auth/send-otp', data),
   verifyOTP: (data) => api.post('/auth/verify-otp', data),
   googleLogin: (data) => api.post('/auth/google-login', data),
@@ -137,6 +140,8 @@ export const shopAPI = {
   getShopById: (id) => api.get(`/shops/${id}`),
   getNearbyShops: (params) => api.get('/shops/nearby', { params }),
   getMapShops: (params) => api.get('/shops/map', { params }),
+  searchMapLocations: (data) => api.post('/shops/location/search', data, { suppressErrorToast: true }),
+  reverseMapLocation: (data) => api.post('/shops/location/reverse', data, { suppressErrorToast: true }),
   toggleStatus: () => api.patch('/shops/toggle-status'),
   getAnalytics: () => api.get('/shops/analytics'),
   updateBankDetails: (data) => api.put('/shops/bank-details', data),
@@ -157,7 +162,19 @@ export const productAPI = {
       suppressErrorToast: true,
     })
   },
-  getProduct: (id) => api.get(`/products/${id}`),
+  getProduct: (id) => {
+    if (!isProductionApiUrlConfigured) {
+      return Promise.reject(new Error(
+        'Production product API is not configured. Set VITE_API_URL to the public HTTPS backend URL ending in /api, then redeploy the frontend.'
+      ))
+    }
+
+    return api.get(`/products/${id}`, { suppressErrorToast: true })
+  },
+  getRecommendations: (id, params = {}) => api.get(`/products/${id}/recommendations`, {
+    params,
+    suppressErrorToast: true,
+  }),
   getMyProducts: (params) => api.get('/products/my', { params }),
   createProduct: (data) => api.post('/products', data, { headers: { 'Content-Type': 'multipart/form-data' } }),
   updateProduct: (id, data) => api.put(`/products/${id}`, data, { headers: { 'Content-Type': 'multipart/form-data' } }),
@@ -187,6 +204,16 @@ export const orderAPI = {
   cancelOrder: (id, data) => api.patch(`/orders/${id}/cancel`, data),
 }
 
+// ── Buyer Analytics & ShopLink Plus APIs ───────────────────────────
+export const buyerAPI = {
+  getAnalytics: (params) => api.get('/buyer/analytics', { params }),
+  getPurchaseHistory: (params) => api.get('/buyer/history', { params }),
+  getMembership: () => api.get('/buyer/plus'),
+  createMembershipCheckout: () => api.post('/buyer/plus/checkout'),
+  verifyMembershipPayment: (data) => api.post('/buyer/plus/verify-payment', data),
+  cancelMembership: (id) => api.post(`/buyer/plus/${id}/cancel`),
+}
+
 // ── Chat APIs ─────────────────────────────────────────────────────
 export const chatAPI = {
   getConversations: () => api.get('/chat/conversations'),
@@ -208,6 +235,21 @@ export const reviewAPI = {
   createReview: (data) => api.post('/reviews', data),
   getShopReviews: (shopId, params) => api.get(`/reviews/shop/${shopId}`, { params }),
   replyToReview: (id, data) => api.put(`/reviews/${id}/reply`, data),
+  getProductReviews: (productId, params) => api.get(`/reviews/product/${productId}`, {
+    params,
+    suppressErrorToast: true,
+  }),
+  createProductReview: (productId, formData) => api.post(
+    `/reviews/product/${productId}`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  ),
+  updateProductReview: (productId, reviewId, data) => api.put(
+    `/reviews/product/${productId}/${reviewId}`,
+    data,
+  ),
+  deleteProductReview: (productId, reviewId) => api.delete(`/reviews/product/${productId}/${reviewId}`),
+  report: (reviewId) => api.post(`/reviews/${reviewId}/report`),
 }
 
 // ── Notification APIs ─────────────────────────────────────────────
@@ -217,13 +259,41 @@ export const notificationAPI = {
   markAsRead: (data) => api.patch('/notifications/read', data),
 }
 
+// ── Privacy, Security & Support APIs ──────────────────────────────
+export const privacyAPI = {
+  getCenter: () => api.get('/privacy'),
+  updatePreferences: (data) => api.patch('/privacy/preferences', data),
+  requestExport: () => api.post('/privacy/export'),
+  requestDeletion: (data) => api.post('/privacy/deletion-request', data),
+  getSecurity: () => api.get('/privacy/security'),
+  changePassword: (data) => api.post('/privacy/security/password', data),
+  revokeOtherSessions: () => api.post('/privacy/security/logout-other-sessions'),
+}
+
+export const supportAPI = {
+  listTickets: (params) => api.get('/support', { params }),
+  createTicket: (formData) => api.post('/support', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  getTicket: (id, params) => api.get(`/support/${id}`, { params }),
+  sendMessage: (id, formData) => api.post(`/support/${id}/messages`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+}
+
 // ── Admin APIs ────────────────────────────────────────────────────
 export const adminAPI = {
   getDashboard: () => api.get('/admin/dashboard'),
+  getResource: (resource, params) => api.get(`/admin/resources/${resource}`, { params }),
   getUsers: (params) => api.get('/admin/users', { params }),
   banUser: (id, data) => api.patch(`/admin/users/${id}/ban`, data),
   getShops: (params) => api.get('/admin/shops', { params }),
-  verifyShop: (id) => api.patch(`/admin/shops/${id}/verify`),
+  verifyShop: (id, data) => api.patch(`/admin/shops/${id}/verify`, data),
+  setShopActive: (id, data) => api.patch(`/admin/shops/${id}/active`, data),
+  updateProductStatus: (id, data) => api.patch(`/admin/products/${id}/status`, data),
+  moderateReview: (id, data) => api.patch(`/admin/reviews/${id}/visibility`, data),
+  getSupportTickets: (params) => api.get('/admin/support', { params }),
+  getSupportTicket: (id, params) => api.get(`/admin/support/${id}`, { params }),
+  updateSupportTicket: (id, data) => api.patch(`/admin/support/${id}`, data),
+  replySupportTicket: (id, formData) => api.post(`/admin/support/${id}/messages`, formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
+  getPrivacyRequests: (params) => api.get('/admin/privacy-requests', { params }),
+  updatePrivacyRequest: (id, data) => api.patch(`/admin/privacy-requests/${id}`, data),
 }
 
 export default api

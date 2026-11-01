@@ -44,8 +44,45 @@
 ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 2px; }
 
 .dead-stock-map-shell {
-  height: min(72vh, 620px);
-  min-height: 420px;
+  height: min(68vh, 680px);
+  min-height: 480px;
+}
+
+.explore-page .bg-card {
+  background-color: hsl(var(--card));
+}
+
+.explore-page .bg-background {
+  background-color: hsl(var(--background));
+}
+
+.explore-page .bg-muted,
+.explore-page .bg-muted\/30 {
+  background-color: hsl(var(--muted));
+}
+
+.explore-page .text-foreground,
+.explore-page .text-card-foreground {
+  color: hsl(var(--foreground));
+}
+
+.explore-page .text-muted-foreground {
+  color: hsl(var(--muted-foreground));
+}
+
+.explore-page input,
+.explore-page select {
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.explore-page input::placeholder {
+  color: hsl(var(--muted-foreground));
+  opacity: 1;
+}
+
+.explore-page .border-input {
+  border-color: hsl(var(--input));
 }
 
 .dead-stock-map-shell .leaflet-container {
@@ -61,8 +98,36 @@
 }
 
 .dead-stock-map-shell .leaflet-control-zoom a {
-  background: rgba(255, 255, 255, 0.96) !important;
-  color: #0f172a !important;
+  background: hsl(var(--card)) !important;
+  color: hsl(var(--foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+}
+
+.explore-shop-list {
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.explore-shop-list article {
+  background-color: hsl(var(--card));
+}
+
+.explore-map .leaflet-popup-content-wrapper,
+.explore-map .leaflet-popup-tip {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+}
+
+.explore-map .leaflet-tooltip {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+.explore-map .leaflet-tooltip-top::before {
+  border-top-color: hsl(var(--card));
 }
 
 .custom-shop-marker-wrap {
@@ -77,12 +142,18 @@
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #f97316, #ea580c);
+  background: #ea580c;
   color: white;
   font-size: 11px;
   font-weight: 700;
   border: 2px solid white;
   box-shadow: 0 8px 18px rgba(234, 88, 12, 0.35);
+}
+
+.custom-shop-marker.is-selected {
+  background: #1d4ed8;
+  transform: scale(1.12);
+  box-shadow: 0 0 0 4px rgba(29, 78, 216, 0.2), 0 8px 18px rgba(29, 78, 216, 0.3);
 }
 
 .custom-user-marker-wrap {
@@ -110,6 +181,20 @@
   display: block;
 }
 
+.custom-pending-location-marker-wrap {
+  background: transparent;
+  border: none;
+}
+
+.custom-pending-location-marker {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f97316;
+  border: 3px solid white;
+  box-shadow: 0 0 0 7px rgba(249, 115, 22, 0.2);
+}
+
 .map-popup-card {
   min-width: 220px;
   max-width: 260px;
@@ -120,3 +205,20 @@
   margin: 0;
 }
 
+@media (max-width: 1023px) {
+  .dead-stock-map-shell {
+    height: clamp(320px, 52vh, 480px);
+    min-height: 320px;
+  }
+
+  .explore-shop-list {
+    max-height: none;
+  }
+}
+
+@media (max-width: 639px) {
+  .dead-stock-map-shell {
+    height: clamp(300px, 48vh, 420px);
+    min-height: 300px;
+  }
+}

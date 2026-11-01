@@ -18,6 +18,8 @@ import { PageLoader } from '@/components/shared'
 import { productAPI, orderAPI, chatAPI } from '@/services/api'
 import { useAuthStore } from '@/store'
 import LocationPicker from '@/components/map/LocationPicker'
+import ProductReviews from '@/components/product/ProductReviews'
+import ProductRecommendations from '@/components/product/ProductRecommendations'
 import { getCurrentDeviceLocation, isValidCoordinates } from '@/utils/geolocation'
 import { format, formatDistanceToNow } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -30,6 +32,8 @@ export default function ProductDetailPage() {
 
   const [product, setProduct] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [productError, setProductError] = useState(null)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [activeImg, setActiveImg] = useState(0)
   const [showOrderDialog, setShowOrderDialog] = useState(false)
   const [orderLoading, setOrderLoading] = useState(false)
@@ -78,6 +82,10 @@ export default function ProductDetailPage() {
   }
 
   const handleOpenOrderDialog = () => {
+    if (!isAuthenticated) {
+      navigate('/auth/login', { state: { from: window.location.pathname } })
+      return
+    }
     resetPurchaseLocation()
     setShowOrderDialog(true)
   }
@@ -154,28 +162,32 @@ export default function ProductDetailPage() {
   useEffect(() => {
     let active = true
     const loadProduct = async () => {
+      setLoading(true)
+      setProduct(null)
+      setProductError(null)
       try {
         const res = await productAPI.getProduct(id)
         if (!active) return
         const loadedProduct = res.data.product
+        if (!loadedProduct) {
+          setProductError('not-found')
+          return
+        }
         setProduct(loadedProduct)
         const minimumOrderQuantity = Math.max(1, Number(loadedProduct.minimumOrderQuantity) || 1)
         setQuantity(minimumOrderQuantity <= loadedProduct.availableQuantity ? minimumOrderQuantity : 1)
         if (!loadedProduct.deliveryOptions?.selfPickup) {
           setDeliveryType(loadedProduct.deliveryOptions?.normalDelivery ? 'normal' : 'urgent')
         }
-      } catch {
-        if (active) {
-          toast.error('Product not found')
-          navigate('/')
-        }
+      } catch (error) {
+        if (active) setProductError([400, 404].includes(error?.httpStatus) ? 'not-found' : 'unavailable')
       } finally {
         if (active) setLoading(false)
       }
     }
     loadProduct()
     return () => { active = false }
-  }, [id, navigate])
+  }, [id, loadAttempt])
 
   const handleStartChat = async () => {
     if (!isAuthenticated) return navigate('/auth/login')
@@ -323,12 +335,24 @@ export default function ProductDetailPage() {
   }
 
   const handleShare = async () => {
-    const url = window.location.href
-    if (navigator.share) {
-      await navigator.share({ title: product.name, url })
-    } else {
-      navigator.clipboard.writeText(url)
-      toast.success('Link copied!')
+    let url
+    try {
+      const shareBase = import.meta.env.VITE_APP_URL?.trim() || window.location.origin
+      url = new URL(`/products/${encodeURIComponent(product._id)}`, shareBase).toString()
+    } catch {
+      toast.error('Unable to create a product link. Check the ShopLink site URL configuration.')
+      return
+    }
+
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: product.name, url })
+      } else {
+        await navigator.clipboard.writeText(url)
+        toast.success('Link copied!')
+      }
+    } catch (error) {
+      if (error?.name !== 'AbortError') toast.error('Unable to share this product link.')
     }
   }
 
@@ -337,6 +361,32 @@ export default function ProductDetailPage() {
     : null
 
   if (loading) return <PageLoader />
+  if (productError) {
+    const unavailable = productError === 'unavailable'
+    return (
+      <main className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-4 text-center">
+        <p className="text-sm font-semibold uppercase tracking-wide text-orange-600">
+          {unavailable ? 'Product unavailable' : 'Product not found'}
+        </p>
+        <h1 className="mt-2 text-2xl font-bold">
+          {unavailable ? 'We could not load this product' : 'This product is no longer available'}
+        </h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {unavailable
+            ? 'Check your connection and try again.'
+            : 'The link may be invalid, or the product may have been removed.'}
+        </p>
+        <div className="mt-6 flex gap-3">
+          {unavailable && (
+            <Button variant="outline" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>
+              Try again
+            </Button>
+          )}
+          <Button onClick={() => navigate('/')}>Go home</Button>
+        </div>
+      </main>
+    )
+  }
   if (!product) return null
 
   const isSeller = user?._id === product.seller?._id
@@ -345,7 +395,7 @@ export default function ProductDetailPage() {
   const canOrder = !isSeller && product.availableQuantity > 0 && product.status === 'active' && hasValidMinimumOrderQuantity
 
   return (
-    <div className="min-h-screen bg-background pb-32">
+    <div className="min-h-screen bg-background pb-[calc(8rem+env(safe-area-inset-bottom))] lg:pb-32">
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           
@@ -590,23 +640,30 @@ export default function ProductDetailPage() {
         </div>
       </div>
 
+      <div className="mx-auto max-w-7xl space-y-12 px-4 pb-8">
+        <ProductReviews product={product} />
+        <ProductRecommendations productId={product._id} />
+      </div>
+
       {/* Bottom Action Bar (Visible on Mobile Only) */}
       {!isSeller && (
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur px-4 py-3 flex gap-3 pb-safe">
+        <div className={`lg:hidden fixed left-0 right-0 z-50 border-t bg-background/95 backdrop-blur px-4 py-3 flex gap-2 sm:gap-3 pb-[env(safe-area-inset-bottom)] ${
+          isAuthenticated ? 'bottom-[calc(4rem+env(safe-area-inset-bottom))]' : 'bottom-0'
+        }`}>
           <Button
             variant="outline"
-            className="flex-1 gap-2"
+            className="min-w-0 flex-1 gap-1 px-2 text-xs sm:gap-2 sm:px-4 sm:text-sm"
             onClick={handleStartChat}
           >
-            <MessageCircle className="h-4 w-4" />
+            <MessageCircle className="h-4 w-4 shrink-0" />
             {t('chat.start_chat')}
           </Button>
           <Button
-            className="flex-1 gap-2"
+            className="min-w-0 flex-1 gap-1 px-2 text-xs sm:gap-2 sm:px-4 sm:text-sm"
             disabled={!canOrder}
             onClick={() => canOrder && handleOpenOrderDialog()}
           >
-            <ShoppingBag className="h-4 w-4" />
+            <ShoppingBag className="h-4 w-4 shrink-0" />
             {!canOrder ? t('product.sold_out') : t('order.buy_now')}
           </Button>
         </div>

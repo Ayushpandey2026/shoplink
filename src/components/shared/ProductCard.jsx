@@ -1,7 +1,7 @@
 // src/components/shared/ProductCard.jsx
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { MapPin, Clock, Star, Package } from 'lucide-react'
+import { MapPin, Star, Package } from 'lucide-react'
 import { Card, CardContent, Badge } from '@/components/ui'
 import { useAuthRequired } from '@/hooks/useAuthRequired'
 import { cn } from '@/lib/utils'
@@ -29,6 +29,13 @@ export const ProductCard = ({ product, className }) => {
   const handleCardClick = (e) => {
     e.preventDefault()
     if (checkAuth('view product details')) {
+      if (window.location.pathname === '/') {
+        try {
+          sessionStorage.setItem('shoplink-home-feed-scroll', String(window.scrollY))
+        } catch {
+          // Feed navigation should continue if session storage is unavailable.
+        }
+      }
       navigate(`/products/${product._id}`)
     }
   }

@@ -1,5 +1,5 @@
 // src/App.jsx — Full app with all routes wired up
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Link, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { Suspense, useEffect } from 'react'
 import { useAuthStore, useUIStore, useNotificationStore } from '@/store'
@@ -38,12 +38,21 @@ import RegisterShopPage from '@/pages/shop/RegisterShopPage'
 import ShopDashboardPage from '@/pages/shop/ShopDashboardPage'
 import ShopSettingsPage from '@/pages/shop/ShopSettingsPage'
 import AnalyticsPage from '@/pages/shop/AnalyticsPage'
+import BuyerAnalyticsPage from '@/pages/buyer/BuyerAnalyticsPage'
+import ShopLinkPlusPage from '@/pages/buyer/ShopLinkPlusPage'
+import PrivacySecurityPage from '@/pages/privacy/PrivacySecurityPage'
+import HelpCenterPage from '@/pages/support/HelpCenterPage'
+import SupportTicketPage from '@/pages/support/SupportTicketPage'
+import AdminSupportPage from '@/pages/admin/AdminSupportPage'
+import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
+import ResetPasswordPage from '@/pages/auth/ResetPasswordPage'
 
 // Wallet
 import WalletPage from '@/pages/wallet/WalletPage'
 
 // Admin
 import AdminDashboard from '@/pages/admin/AdminDashboard'
+import AdminLoginPage from '@/pages/admin/AdminLoginPage'
 
 // Route guards
 const ProtectedRoute = ({ children }) => {
@@ -67,15 +76,41 @@ const RegisterShopRoute = ({ children }) => {
 
 const AdminRoute = ({ children }) => {
   const { isAuthenticated, user } = useAuthStore()
-  if (!isAuthenticated) return <Navigate to="/auth/login" replace />
+  if (!isAuthenticated) return <Navigate to="/admin/login" replace />
   if (user?.role !== 'admin') return <Navigate to="/" replace />
   return children
+}
+
+const AppLayout = ({ children, isAuthenticated }) => {
+  const { pathname } = useLocation()
+  const isAdminPath = pathname.startsWith('/admin')
+  return (
+    <div className={`min-h-screen bg-background text-foreground ${isAuthenticated && !isAdminPath ? 'pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
+      {!isAdminPath && <Navbar />}
+      {children}
+      {!isAdminPath && isAuthenticated && <BottomNav />}
+    </div>
+  )
 }
 
 const PublicOnlyRoute = ({ children }) => {
   const { isAuthenticated } = useAuthStore()
   return !isAuthenticated ? children : <Navigate to="/" replace />
 }
+
+const NotFoundPage = () => (
+  <main className="mx-auto flex min-h-[60vh] max-w-xl flex-col items-center justify-center px-4 text-center">
+    <p className="text-sm font-semibold uppercase tracking-wide text-orange-600">404</p>
+    <h1 className="mt-2 text-2xl font-bold">Page not found</h1>
+    <p className="mt-2 text-sm text-muted-foreground">The page you are looking for does not exist.</p>
+    <Link
+      to="/"
+      className="mt-6 inline-flex min-h-11 items-center justify-center rounded-md bg-orange-500 px-5 font-medium text-white hover:bg-orange-600"
+    >
+      Go home
+    </Link>
+  </main>
+)
 
 function App() {
   const { isAuthenticated, token, user, updateUser } = useAuthStore()
@@ -148,14 +183,15 @@ function App() {
 
   return (
     <BrowserRouter>
-      <div className={`min-h-screen bg-background text-foreground ${isAuthenticated ? 'pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-0' : ''}`}>
-        <Navbar />
-
+      <AppLayout isAuthenticated={isAuthenticated}>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             {/* Public routes */}
+            <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/auth/login" element={<PublicOnlyRoute><LoginPage /></PublicOnlyRoute>} />
             <Route path="/auth/register" element={<PublicOnlyRoute><RegisterPage /></PublicOnlyRoute>} />
+            <Route path="/auth/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
             <Route path="/auth/complete-profile" element={<ProtectedRoute><CompleteProfilePage /></ProtectedRoute>} />
 
             {/* Main app routes - Home page is PUBLIC (viewable without auth) */}
@@ -164,9 +200,14 @@ function App() {
             <Route path="/shops/:shopId/stock" element={<ShopDeadStockPage />} />
             <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
             <Route path="/notifications" element={<ProtectedRoute><NotificationsPage /></ProtectedRoute>} />
+            <Route path="/buyer/analytics" element={<ProtectedRoute><BuyerAnalyticsPage /></ProtectedRoute>} />
+            <Route path="/plus" element={<ProtectedRoute><ShopLinkPlusPage /></ProtectedRoute>} />
+            <Route path="/privacy-security" element={<ProtectedRoute><PrivacySecurityPage /></ProtectedRoute>} />
+            <Route path="/help" element={<ProtectedRoute><HelpCenterPage /></ProtectedRoute>} />
+            <Route path="/support/:id" element={<ProtectedRoute><SupportTicketPage /></ProtectedRoute>} />
 
             {/* Product routes */}
-            <Route path="/products/:id" element={<ProtectedRoute><ProductDetailPage /></ProtectedRoute>} />
+            <Route path="/products/:id" element={<ProductDetailPage />} />
             <Route path="/sell/add" element={<SellerRoute><AddProductPage /></SellerRoute>} />
             <Route path="/sell/my-products" element={<SellerRoute><MyProductsPage /></SellerRoute>} />
 
@@ -190,13 +231,12 @@ function App() {
             {/* Admin */}
             <Route path="/admin" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
             <Route path="/admin/*" element={<AdminRoute><AdminDashboard /></AdminRoute>} />
+            <Route path="/admin/support" element={<AdminRoute><AdminSupportPage /></AdminRoute>} />
 
             {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Suspense>
-
-        {isAuthenticated && <BottomNav />}
 
         <Toaster
           position="top-center"
@@ -214,7 +254,7 @@ function App() {
             error: { iconTheme: { primary: '#ef4444', secondary: '#fff' } },
           }}
         />
-      </div>
+      </AppLayout>
     </BrowserRouter>
   )
 }

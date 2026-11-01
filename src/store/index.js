@@ -1,6 +1,7 @@
 // src/store/index.js — Zustand global state management
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { getCurrentDeviceLocation } from '@/utils/geolocation'
 
 // ── Auth Store ────────────────────────────────────────────────────
 export const useAuthStore = create(
@@ -80,29 +81,73 @@ export const useUIStore = create((set) => ({
 export const useLocationStore = create((set) => ({
   latitude: null,
   longitude: null,
+  accuracy: null,
+  acquiredAt: null,
+  source: null,
   city: null,
   error: null,
   loading: false,
 
-  setLocation: ({ latitude, longitude, city }) => set({ latitude, longitude, city, error: null }),
-  setError: (error) => set({ error, loading: false }),
+  setLocation: ({ latitude, longitude, accuracy = null, acquiredAt = null, source = 'manual', address = null }) => set({
+    latitude,
+    longitude,
+    accuracy,
+    acquiredAt,
+    source,
+    city: address,
+    error: null,
+    loading: false,
+  }),
+  setError: (error) => set({
+    latitude: null,
+    longitude: null,
+    accuracy: null,
+    acquiredAt: null,
+    source: null,
+    city: null,
+    error,
+    loading: false,
+  }),
   setLoading: (loading) => set({ loading }),
+  clearLocation: () => set({
+    latitude: null,
+    longitude: null,
+    accuracy: null,
+    acquiredAt: null,
+    source: null,
+    city: null,
+    error: null,
+    loading: false,
+  }),
 
-  requestLocation: () => {
-    set({ loading: true })
-    if (!navigator.geolocation) {
-      set({ error: 'Geolocation not supported', loading: false })
-      return
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => set({
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
+  requestLocation: async () => {
+    set({
+      latitude: null,
+      longitude: null,
+      accuracy: null,
+      acquiredAt: null,
+      source: null,
+      city: null,
+      error: null,
+      loading: true,
+    })
+    try {
+      const location = await getCurrentDeviceLocation()
+      set({ ...location, city: null, error: null, loading: false })
+      return location
+    } catch (error) {
+      set({
+        latitude: null,
+        longitude: null,
+        accuracy: null,
+        acquiredAt: null,
+        source: null,
+        city: null,
+        error: error.message,
         loading: false,
-        error: null,
-      }),
-      (err) => set({ error: err.message, loading: false })
-    )
+      })
+      throw error
+    }
   },
 }))
 

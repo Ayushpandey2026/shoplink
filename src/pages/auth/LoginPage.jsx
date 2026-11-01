@@ -1,6 +1,6 @@
 // src/pages/auth/LoginPage.jsx
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -22,21 +22,26 @@ const loginSchema = z.object({
 export default function LoginPage() {
   const { t, i18n } = useTranslation()
   const navigate = useNavigate()
+  const location = useLocation()
   const { setAuth, isAuthenticated } = useAuthStore()
   const { setLanguage } = useUIStore()
   const [loading, setLoading] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
   const [error, setError] = useState('')
   const { register, handleSubmit, formState: { errors } } = useForm({ resolver: zodResolver(loginSchema) })
+  const requestedPath = location.state?.from
+  const redirectPath = typeof requestedPath === 'string' && requestedPath.startsWith('/') && !requestedPath.startsWith('//')
+    ? requestedPath
+    : '/'
 
   useEffect(() => {
-    if (isAuthenticated) navigate('/')
-  }, [isAuthenticated, navigate])
+    if (isAuthenticated) navigate(redirectPath, { replace: true })
+  }, [isAuthenticated, navigate, redirectPath])
 
   const applyAuth = ({ user, accessToken, refreshToken }) => {
     setAuth({ user, accessToken, refreshToken })
     initSocket(accessToken)
-    navigate('/')
+    navigate(redirectPath, { replace: true })
   }
 
   const handleLogin = async (data) => {
@@ -89,6 +94,7 @@ export default function LoginPage() {
             <div className="space-y-1.5"><Label htmlFor="login-password">Password</Label><Input id="login-password" type="password" autoComplete="current-password" {...register('password')} />{errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}</div>
             <Button type="submit" className="w-full" disabled={loading || googleLoading}>{loading ? 'Logging in...' : 'Login'}</Button>
           </form>
+          <p className="text-right text-sm"><Link to="/auth/forgot-password" className="text-orange-500 hover:underline">Forgot password?</Link></p>
           <div className="pt-2 border-t text-center"><p className="text-sm text-muted-foreground">Don't have an account? <Link to="/auth/register" className="text-orange-500 font-semibold hover:underline">Register</Link></p></div>
         </CardContent></Card>
         <div className="mt-8 text-center text-xs text-muted-foreground"><div className="flex gap-2 items-center justify-center"><Shield className="h-3.5 w-3.5" /><span>Your data is secure and encrypted</span></div></div>

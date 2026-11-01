@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import {
-  User, Store, ShoppingBag, Wallet, Bell, Globe, Moon, Sun,
-  LogOut, ChevronRight, Shield, Star, Settings, HelpCircle
+  Store, ShoppingBag, Wallet, Bell, Globe, Moon, Sun,
+  LogOut, ChevronRight, Shield, Star, Settings, HelpCircle, ChartNoAxesCombined, Crown
 } from 'lucide-react'
 import { Button, Avatar, AvatarImage, AvatarFallback, Card, CardContent, Switch, Separator, Badge } from '@/components/ui'
 import { PageWrapper } from '@/components/shared'
@@ -38,13 +38,17 @@ export default function ProfilePage() {
   const handleLogout = async () => {
     if (!confirm('Are you sure you want to logout?')) return
     setLoggingOut(true)
+    let serverLogoutSucceeded = false
     try {
       await authAPI.logout({})
-    } catch {}
+      serverLogoutSucceeded = true
+    } catch (error) {
+      toast.error(error?.message || 'You were signed out on this device, but the server session could not be revoked.')
+    }
     disconnectSocket()
     logout()
     navigate('/auth/login')
-    toast.success('Logged out successfully')
+    if (serverLogoutSucceeded) toast.success('Logged out successfully')
   }
 
   const toggleLang = () => {
@@ -117,6 +121,26 @@ export default function ProfilePage() {
         </Card>
       )}
 
+      {/* Buyer account analytics and membership */}
+      <Card className="mb-4">
+        <CardContent className="pt-2 pb-2 px-4">
+          <MenuItem
+            icon={ChartNoAxesCombined}
+            label="Buyer analytics"
+            value="Spending, savings, and purchase history"
+            onClick={() => navigate('/buyer/analytics')}
+          />
+          <Separator />
+          <MenuItem
+            icon={Crown}
+            label="ShopLink Plus"
+            value="Membership and delivery benefits"
+            onClick={() => navigate('/plus')}
+            badge="Plus"
+          />
+        </CardContent>
+      </Card>
+
       {/* Settings */}
       <Card className="mb-4">
         <CardContent className="pt-2 pb-2 px-4">
@@ -156,9 +180,9 @@ export default function ProfilePage() {
 
           <MenuItem icon={Bell} label={t('nav.notifications')} value="Manage notification preferences" onClick={() => navigate('/notifications')} />
           <Separator />
-          <MenuItem icon={Shield} label="Privacy & Security" value="Account security settings" onClick={() => {}} />
+          <MenuItem icon={Shield} label="Privacy & Security" value="Your data, preferences, and account security" onClick={() => navigate('/privacy-security')} />
           <Separator />
-          <MenuItem icon={HelpCircle} label="Help & Support" value="FAQs and contact support" onClick={() => {}} />
+          <MenuItem icon={HelpCircle} label="Help & Support" value="Help center and support requests" onClick={() => navigate('/help')} />
         </CardContent>
       </Card>
 

@@ -1,8 +1,8 @@
 // src/pages/shop/AnalyticsPage.jsx
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TrendingUp, Package, ShoppingBag, Star, IndianRupee, AlertCircle, Wallet, Eye } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, Badge, Progress } from '@/components/ui'
+import { TrendingUp, Package, ShoppingBag, Star, IndianRupee, AlertCircle, Wallet, CheckCircle2 } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle, Badge, Progress, Separator } from '@/components/ui'
 import { PageWrapper, LoadingSpinner, EmptyState } from '@/components/shared'
 import { shopAPI } from '@/services/api'
 import toast from 'react-hot-toast'
@@ -32,19 +32,19 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchAnalytics()
+    let active = true
+    shopAPI.getAnalytics()
+      .then((res) => {
+        if (active) setAnalytics(res.data)
+      })
+      .catch(() => {
+        if (active) toast.error('Failed to load analytics')
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
   }, [])
-
-  const fetchAnalytics = async () => {
-    try {
-      const res = await shopAPI.getAnalytics()
-      setAnalytics(res.data)
-    } catch {
-      toast.error('Failed to load analytics')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   if (loading) return <LoadingSpinner className="py-20" />
   if (!analytics) return (
@@ -52,7 +52,9 @@ export default function AnalyticsPage() {
   )
 
   const { overview, products, recentOrders, monthlyRevenue } = analytics
+  const inventoryRecovery = analytics.inventoryRecovery
   const maxRevenue = Math.max(...(monthlyRevenue?.map(m => m.revenue) || [1]), 1)
+  const formatPaise = (amountPaise) => `₹${(amountPaise / 100).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
 
   const orderStatusMap = {}
   recentOrders?.forEach(o => { orderStatusMap[o._id] = o })
@@ -65,9 +67,9 @@ export default function AnalyticsPage() {
       <div className="grid grid-cols-2 gap-3 mb-4">
         <StatCard
           icon={IndianRupee}
-          label="Total Revenue"
-          value={`₹${overview.totalRevenue?.toLocaleString('en-IN') || 0}`}
-          sub="All time earnings"
+          label="Total Cash Recovered"
+          value={inventoryRecovery ? formatPaise(inventoryRecovery.totalCashRecoveredPaise) : 'Unavailable'}
+          sub="Net proceeds released to your ShopLink wallet"
           color="text-green-600"
           bgColor="bg-green-50 dark:bg-green-950/20"
         />
@@ -81,9 +83,37 @@ export default function AnalyticsPage() {
         />
         <StatCard
           icon={TrendingUp}
-          label="Loss Saved"
-          value={`₹${overview.estimatedLossSaved?.toLocaleString('en-IN') || 0}`}
-          sub="Dead stock value recovered"
+          label="Potential Loss Avoided"
+          value={inventoryRecovery ? formatPaise(inventoryRecovery.totalLossAvoidedPaise) : 'Unavailable'}
+          sub="Net proceeds above expected unsold recovery"
+          color="text-orange-500"
+          bgColor="bg-orange-50 dark:bg-orange-950/20"
+        />
+        <StatCard
+          icon={AlertCircle}
+          label="Remaining Potential Loss"
+          value={inventoryRecovery ? formatPaise(inventoryRecovery.totalRemainingPotentialLossPaise) : 'Unavailable'}
+          sub="Estimated loss for unsold eligible units"
+          color="text-red-600"
+          bgColor="bg-red-50 dark:bg-red-950/20"
+        />
+        <StatCard
+          icon={Package}
+          label="Units Recovered"
+          value={inventoryRecovery?.unitsRecovered ?? 'Unavailable'}
+          sub="Units with proceeds released"
+          color="text-blue-600"
+          bgColor="bg-blue-50 dark:bg-blue-950/20"
+        />
+        <StatCard
+          icon={CheckCircle2}
+          label="Inventory Cleared"
+          value={inventoryRecovery
+            ? `${inventoryRecovery.inventoryCleared.completedListings} / ${inventoryRecovery.inventoryCleared.totalListings}`
+            : 'Unavailable'}
+          sub={inventoryRecovery
+            ? `${inventoryRecovery.inventoryCleared.unavailableListings} listing(s) need cost/recovery data`
+            : ''}
           color="text-orange-500"
           bgColor="bg-orange-50 dark:bg-orange-950/20"
         />
@@ -97,6 +127,74 @@ export default function AnalyticsPage() {
         />
       </div>
 
+      {inventoryRecovery && (
+        <>
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Wallet className="h-4 w-4 text-orange-500" /> Settled sales breakdown
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 pt-0 text-sm">
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Gross sales value</span><span>{formatPaise(inventoryRecovery.totalGrossSalesPaise)}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Platform commission</span><span>−{formatPaise(inventoryRecovery.totalPlatformCommissionPaise)}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Other deductions</span><span>−{formatPaise(inventoryRecovery.totalOtherDeductionsPaise)}</span></div>
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Seller refunds/reversals</span><span>−{formatPaise(inventoryRecovery.totalRefundsPaise)}</span></div>
+              <Separator />
+              <div className="flex justify-between gap-3 font-semibold"><span>Net proceeds recovered</span><span>{formatPaise(inventoryRecovery.totalCashRecoveredPaise)}</span></div>
+              <p className="text-xs text-muted-foreground">
+                Potential loss avoided is separate: it compares these net proceeds with the expected unsold recovery value. Pending, failed, cancelled, and unpaid orders are excluded. Razorpay test-mode wallet proceeds are not bank payouts.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="mb-4">
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Package className="h-4 w-4 text-orange-500" /> Product recovery breakdown
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 pt-0">
+              {inventoryRecovery.productBreakdown.length === 0 && (
+                <p className="text-sm text-muted-foreground">No inventory listings yet.</p>
+              )}
+              {inventoryRecovery.productBreakdown.map((product) => (
+                <div key={product.productId} className="rounded-lg border p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-medium">{product.name}</p>
+                    <Badge variant={
+                      product.inventoryStatus === 'cleared' ? 'success'
+                        : product.inventoryStatus === 'unavailable' ? 'secondary'
+                          : 'warning'
+                    }>
+                      {product.inventoryStatus === 'cleared' ? 'Inventory cleared'
+                        : product.inventoryStatus === 'partial' ? 'Partially sold'
+                          : product.inventoryStatus === 'not_sold' ? 'Not yet sold'
+                            : 'Financial data unavailable'}
+                    </Badge>
+                  </div>
+                  {product.financialDataAvailable ? (
+                    <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                      <span>Recovered units</span><span className="text-right">{product.soldQuantity} / {product.initialQuantity} {product.unit}</span>
+                      <span>Remaining potential loss</span><span className="text-right">{formatPaise(product.remainingPotentialLossPaise)}</span>
+                      <span>Net seller proceeds</span><span className="text-right">{formatPaise(product.sellerProceedsPaise)}</span>
+                      <span>Loss avoided</span><span className="text-right">{formatPaise(product.lossAvoidedPaise)}</span>
+                      <span>Gross sales / commission</span><span className="text-right">{formatPaise(product.grossSalesPaise)} / −{formatPaise(product.platformCommissionPaise)}</span>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Historical purchase cost, unsold recovery value, or initial quantity was not recorded. No loss estimate is shown.
+                      {product.sellerProceedsPaise > 0 && ` Released seller proceeds: ${formatPaise(product.sellerProceedsPaise)}.`}
+                    </p>
+                  )}
+                  {product.isDeleted && <p className="mt-2 text-xs text-muted-foreground">Listing archived/deleted; historical accounting retained.</p>}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </>
+      )}
+
       {/* Product Stats */}
       <Card className="mb-4">
         <CardHeader>
@@ -106,11 +204,11 @@ export default function AnalyticsPage() {
         </CardHeader>
         <CardContent className="pt-0 space-y-3">
           {[
-            { label: 'Active Listings', value: products.active, color: 'bg-green-500' },
-            { label: 'Sold Out', value: products.soldOut, color: 'bg-gray-400' },
-            { label: 'Expiring in 30 Days', value: products.expiringSoon, color: 'bg-orange-500' },
-            { label: 'Total Views', value: products.totalViews, color: 'bg-blue-500', isViews: true },
-          ].map(({ label, value, color, isViews }) => (
+            { label: 'Active Listings', value: products.active },
+            { label: 'Sold Out', value: products.soldOut },
+            { label: 'Expiring in 30 Days', value: products.expiringSoon },
+            { label: 'Total Views', value: products.totalViews, isViews: true },
+          ].map(({ label, value, isViews }) => (
             <div key={label} className="space-y-1.5">
               <div className="flex justify-between text-sm">
                 <span className="text-muted-foreground">{label}</span>
@@ -190,10 +288,10 @@ export default function AnalyticsPage() {
               <TrendingUp className="h-6 w-6" />
             </div>
             <div>
-              <p className="text-sm opacity-90">Total Loss Recovered via ShopLink</p>
-              <p className="text-2xl font-bold">₹{overview.estimatedLossSaved?.toLocaleString('en-IN') || 0}</p>
+              <p className="text-sm opacity-90">Potential Loss Avoided</p>
+              <p className="text-2xl font-bold">{inventoryRecovery ? formatPaise(inventoryRecovery.totalLossAvoidedPaise) : 'Unavailable'}</p>
               <p className="text-xs opacity-80 mt-0.5">
-                By selling dead stock instead of throwing it away
+                Incremental value versus expected unsold recovery
               </p>
             </div>
           </div>
